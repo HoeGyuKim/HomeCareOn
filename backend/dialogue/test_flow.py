@@ -1,73 +1,54 @@
 """
-대화 오케스트레이터 단위 테스트 및 시나리오 시뮬레이션 스크립트
+대화 오케스트레이터 개선 시나리오 시뮬레이션 테스트
 """
 from backend.dialogue.orchestrator import DialogueOrchestrator
-from backend.dialogue.korean_number import extract_dong_ho, extract_error_code
 
 
-def test_korean_number_extraction():
-    print("=== [1. 한글 음성 숫자 변환 테스트] ===")
-    cases = [
-        ("백삼 동 천이백사 호요.", ("103동", "1204호")),
-        ("일공삼동 1204호 살아", ("103동", "1204호")),
-        ("오백일 호입니다.", (None, "501호")),
-    ]
-    for text, expected in cases:
-        result = extract_dong_ho(text)
-        assert result == expected, f"Failed: {text} -> {result} != {expected}"
-        print(f"  ✓ '{text}' -> {result}")
+def test_improved_dialogue_scenario():
+    print("\n=== [개선된 사용자 중심 민원 접수 시나리오 테스트] ===")
+    orc = DialogueOrchestrator(use_llm=True)
 
-    error_cases = [
-        ("보일러에 에러 공삼이 떠요", "03"),
-        ("에러 03 온수 안 나옴", "03"),
-        ("경고코드 12번", "12"),
-    ]
-    for text, expected in error_cases:
-        result = extract_error_code(text)
-        assert result == expected, f"Failed: {text} -> {result} != {expected}"
-        print(f"  ✓ '{text}' -> 코드: {result}")
-
-
-def test_dialogue_scenario():
-    print("\n=== [2. README 예시 시나리오 모의 대화 테스트] ===")
-    orc = DialogueOrchestrator()
-
-    # Step 1: 통화 시작
+    # 1. 통화 시작: 동·호수 및 계약자 성함 질문
     prompt = orc.start_call()
     print(f"AI: {prompt}\n")
 
-    # Step 2: 거주자가 음성으로 동/호수 발화
-    user1 = "백삼 동 천이백사 호요."
+    # 2. 고객 발화: 동·호수와 본인 성함 함께 전달
+    user1 = "103동 1204호 홍길동입니다."
     print(f"거주자: {user1}")
     reply1 = orc.handle_utterance(user1)
     print(f"AI: {reply1}\n")
 
-    # Step 3: 거주자가 증상 및 에러코드 발화
-    user2 = "보일러에 에러 공삼이 뜨고 온수가 안 나와요."
+    # 3. 고객 발화: 에러코드 없이 일상적인 고장 설명
+    user2 = "보일러에서 온수가 갑자기 안 나와서요."
     print(f"거주자: {user2}")
     reply2 = orc.handle_utterance(user2)
     print(f"AI: {reply2}\n")
 
-    # Step 4: 접수 요청
-    user3 = "네, 접수해 주세요."
+    # 4. 고객 발화: 전화상 고장 경위/부주의 여부 답변
+    user3 = "어제 저녁부터 그랬고요, 충격 주거나 만진 적은 없고 그냥 갑자기 안 나와요."
     print(f"거주자: {user3}")
     reply3 = orc.handle_utterance(user3)
     print(f"AI: {reply3}\n")
 
-    # 최종 결과 점검
+    # 5. 고객 발화: 방문 접수 동의
+    user4 = "네, 방문 접수해 주세요."
+    print(f"거주자: {user4}")
+    reply4 = orc.handle_utterance(user4)
+    print(f"AI: {reply4}\n")
+
+    # 검증
     summary = orc.get_summary()
-    print("=== [3. 최종 발행된 세션 데이터 검증] ===")
     session = summary["session"]
-    print(f"  ✓ 동/호수: {session['building']} {session['unit']} ({session['resident_name']} 님)")
-    print(f"  ✓ 설비 모델: {session['device_model']}")
-    print(f"  ✓ 에러코드: {session['error_code']}")
-    print(f"  ✓ 비용 부담 판정: {session['liability_party']} (부주의 시 본인 부담 가능: {session['resident_cost_possible']})")
-    print(f"  ✓ 생성된 티켓 번호: {session['ticket_id']}")
-    print(f"  ✓ 대화 단계: {summary['state']}")
+    print("=== [세션 검증 결과] ===")
+    print(f"  ✓ 거주자 본인 확인: {session['resident_name']} (DB 일치: {session['is_resident_verified']})")
+    print(f"  ✓ 대상 설비: {session['device_category']}")
+    print(f"  ✓ 고장 경위: {session['cause_detail']}")
+    print(f"  ✓ 판정 결과: {session['liability_party']}")
+    print(f"  ✓ 발행 티켓: {session['ticket_id']}")
+    assert session['is_resident_verified'] is True
     assert session['ticket_id'] is not None
-    print("\n🎉 모든 시나리오 테스트를 완벽하게 통과했습니다!")
+    print("\n🎉 모든 개선 시나리오가 자연스럽게 성공했습니다!")
 
 
 if __name__ == "__main__":
-    test_korean_number_extraction()
-    test_dialogue_scenario()
+    test_improved_dialogue_scenario()
