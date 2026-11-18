@@ -5,15 +5,31 @@
 import sys
 from backend.dialogue.orchestrator import DialogueOrchestrator
 from backend.dialogue.state import DialogueState
+from backend.dialogue.llm_client import load_api_key, save_api_key
 
 
 def run_interactive_cli():
-    print("=" * 60)
+    print("=" * 65)
     print("  [HomeCareOn] AI 음성 민원 접수 대화 오케스트레이터 테스트 CLI")
     print("  종료하려면 'exit' 또는 'q'를 입력하세요.")
-    print("=" * 60)
+    print("=" * 65)
 
-    orc = DialogueOrchestrator()
+    # 1. API 키 확인 및 없을 경우 대화형 입력 지원
+    current_key = load_api_key()
+    if not current_key:
+        print("\n  [Gemini API 키 안내]")
+        print("  현재 저장된 Gemini API 키가 없습니다.")
+        print("  - 팀원에게 전달받은 키(또는 본인 키)를 입력하시면 .env 파일에 자동 저장됩니다.")
+        print("  - 키 없이 실행하시려면 그냥 [Enter]를 누르세요. (기본 룰베이스 모드로 실행)")
+        print("-" * 65)
+        user_input_key = input("  Gemini API 키 입력: ").strip()
+        if user_input_key:
+            save_api_key(user_input_key)
+            print("  ✓ API 키가 로컬에 안전하게 저장되었습니다! AI 모드로 시작합니다.\n")
+        else:
+            print("  ✓ 키 입력 없이 기본 룰베이스(규칙) 모드로 시작합니다.\n")
+
+    orc = DialogueOrchestrator(use_llm=True)
     first_reply = orc.start_call()
     print(f"\n[AI 상담원] {first_reply}")
 
@@ -40,9 +56,10 @@ def run_interactive_cli():
             print("  📋 [통화 세션 종료 데이터]")
             summary = orc.get_summary()["session"]
             print(f"  - 세대: {summary.get('building')} {summary.get('unit')}")
-            print(f"  - 고객명: {summary.get('resident_name')} ({summary.get('phone')})")
-            print(f"  - 설비 모델: {summary.get('device_model')}")
-            print(f"  - 증상/에러: {summary.get('symptom')} (코드: {summary.get('error_code')})")
+            print(f"  - 고객명: {summary.get('resident_name')} (본인확인: {summary.get('is_resident_verified')})")
+            print(f"  - 설비 분류: {summary.get('device_category')}")
+            print(f"  - 증상 내용: {summary.get('symptom')}")
+            print(f"  - 경위/부주의: {summary.get('cause_detail')}")
             print(f"  - 비용 판정: {summary.get('liability_party')}")
             print(f"  - 판정 근거: {summary.get('liability_reason')}")
             if summary.get('ticket_id'):

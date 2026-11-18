@@ -1,5 +1,5 @@
 """
-Google Gemini API 연동 클라이언트 모듈 (토큰 잘림 방지 및 안정성 강화 버전)
+Google Gemini API 연동 클라이언트 모듈 (개선 버전)
 """
 import os
 import json
@@ -8,13 +8,17 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 
 
+def get_env_path() -> Path:
+    current_dir = Path(__file__).resolve().parent
+    return current_dir.parent.parent / ".env"
+
+
 def load_api_key() -> str:
     api_key = os.getenv("GEMINI_API_KEY")
     if api_key:
         return api_key
 
-    current_dir = Path(__file__).resolve().parent
-    env_file = current_dir.parent.parent / ".env"
+    env_file = get_env_path()
     if env_file.exists():
         with open(env_file, "r", encoding="utf-8") as f:
             for line in f:
@@ -23,6 +27,27 @@ def load_api_key() -> str:
                     return line.split("=", 1)[1].strip()
 
     return ""
+
+
+def save_api_key(api_key: str) -> None:
+    """사용자가 입력한 API 키를 로컬 .env 파일에 안전하게 저장합니다."""
+    env_file = get_env_path()
+    lines = []
+    found = False
+    if env_file.exists():
+        with open(env_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip().startswith("GEMINI_API_KEY="):
+                    lines.append(f"GEMINI_API_KEY={api_key.strip()}\n")
+                    found = True
+                else:
+                    lines.append(line)
+
+    if not found:
+        lines.append(f"GEMINI_API_KEY={api_key.strip()}\n")
+
+    with open(env_file, "w", encoding="utf-8") as f:
+        f.writelines(lines)
 
 
 class GeminiClient:
@@ -38,7 +63,6 @@ class GeminiClient:
         contents = [{"parts": [{"text": f"System: {system_instruction}\n\nUser: {user_prompt}"}]}]
         body: Dict[str, Any] = {"contents": contents}
 
-        # 토큰 잘림 방지를 위해 maxOutputTokens를 넉넉하게 2048로 명시 설정
         generation_config: Dict[str, Any] = {
             "maxOutputTokens": 2048,
             "temperature": 0.7,
@@ -59,11 +83,9 @@ class GeminiClient:
                     return ""
 
                 candidate = candidates[0]
-                # parts가 여러 개로 분할되어 반환되는 경우 모든 텍스트를 누락 없이 결합
                 parts = candidate.get("content", {}).get("parts", [])
                 full_text = "".join(p.get("text", "") for p in parts if "text" in p).strip()
 
-                # 문장 중간 잘림(예: '꼼', '하', '드' 등으로 끝남) 감지 및 후처리
                 if not json_mode and full_text:
                     full_text = self._ensure_complete_sentence(full_text)
 
@@ -73,24 +95,20 @@ class GeminiClient:
             return ""
 
     def _ensure_complete_sentence(self, text: str) -> str:
-        """응답이 문장 부호나 종결 어미 없이 비정상적으로 잘렸는지 검사하여 보정합니다."""
         valid_endings = ('.', '!', '?', '요', '다', '죠', '까', '음', '임')
         trimmed = text.strip()
         if not trimmed:
             return text
 
-        # 정상 종결인 경우 그대로 반환
         if trimmed.endswith(valid_endings):
             return trimmed
 
-        # 마지막 불완전한 단어/토막을 찾고 자연스러운 질문/안내로 보정
         last_dot = max(trimmed.rfind('.'), trimmed.rfind('!'), trimmed.rfind('?'), trimmed.rfind('\n'))
         if last_dot > len(trimmed) // 2:
-            # 앞선 완성된 문장까지만 취하고 방문 접수 질문 추가
             clean_prefix = trimmed[:last_dot + 1].strip()
             return f"{clean_prefix}\n\n점검 기사님 방문 접수를 도와드릴까요?"
 
-        return f"{trimmed}꼼히 확인 후 점검 기사님 방문 접수를 도와드릴까요?"
+        return f"{trimmed} 점검 기사님 방문 접수를 도와드릴까요?"
 
     def extract_information(self, state: str, user_utterance: str, current_session: Dict[str, Any]) -> Dict[str, Any]:
         system_instruction = (
