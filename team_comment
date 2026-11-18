@@ -24,3 +24,21 @@
     https://.../s/a8Kx2 이런식으로 문자를 통해 웹링크에 접속하여 캘린더에서 선택하게 하는 건 어떤지. 
 
 
+26.11.16 : comment (권승민 -> 팀원 전체)
+    - 3차 회의록 정리 완료 (docs/meetings/2026-11-16_meeting.md 참고)
+    - 대화엔진(오케스트레이터) 1차 프로토타입 구현 및 'feature/dialogue-engine' 브랜치에 푸시 완료
+    - 주요 구현 내용:
+      1) 동·호수 및 계약자 성함 SH 세대 DB 대조 (본인 확인)
+      2) 에러코드 등 기술 용어를 배제하고 일상적인 어휘로 고장 시설물 청취
+      3) 전화상으로 고장 경위/노후/부주의 여부를 자연스럽게 사전 청취 후 RAG 비용 판정 연계
+      4) Gemini LLM 기반 자연스러운 구어체 대화 생성 + 상태머신 안전장치 결합
+    - 프로그램 실행 및 테스트 방법 (터미널에서 직접 키보드로 대화해 볼 수 있습니다):
+      1) 브랜치 이동:
+         git fetch && git checkout feature/dialogue-engine
+      2) 프로젝트 루트에서 대화형 CLI 실행:
+         $env:PYTHONPATH = "."
+         python -m backend.dialogue.cli
+         (자동 시나리오 테스트 실행: python -m backend.dialogue.test_flow)
+      * 참고: GEMINI_API_KEY가 없어도 기본 룰베이스로 안전하게 동작하며, .env에 키 입력 시 실시간 LLM 모드로 동작합니다.
+    - 회규, 준혁 님이 직접 돌려보시고 대화 흐름이나 각 파트별 데이터 인터페이스(세대 DB, RAG 비용 판정, 티켓 발행 규격)에 대해 피드백 편하게 남겨주세요!
+
