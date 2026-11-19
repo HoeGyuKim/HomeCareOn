@@ -1,0 +1,157 @@
+/* 공통 스타일: 공공기관 업무용 웹 형식 (남색 계열, 직각에 가까운 모서리, 표 중심 레이아웃) */
+:root {
+  --primary: #1d4f91;
+  --primary-dark: #0f2f5c;
+  --primary-light: #eaf1fa;
+  --text: #1e1e1e;
+  --text-2: #444;
+  --muted: #6b6b6b;
+  --line: #d6dbe1;
+  --line-dark: #9aa3ad;
+  --th: #f3f5f8;
+  --bg: #f4f5f7;
+  --point: #d9480f;
+  --info: #1d4f91;
+  --ok: #237a3b;
+  --warn: #a35f00;
+  --danger: #c62828;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html { font-size: 15px; }
+
+body {
+  margin: 0;
+  background: #fff;
+  color: var(--text);
+  font-family: "Pretendard", "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", sans-serif;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+  word-break: keep-all;
+}
+
+a { color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
+h1, h2, h3, h4 { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+
+.blind {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+/* ---------------------------------------------------------------- 버튼 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--line-dark);
+  border-radius: 2px;
+  background: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn:hover { background: #f5f6f8; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+.btn-primary:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+.btn-dark { background: #4a5260; border-color: #4a5260; color: #fff; }
+.btn-dark:hover { background: #363c47; }
+.btn-line { border-color: var(--primary); color: var(--primary); font-weight: 600; }
+.btn-line:hover { background: var(--primary-light); }
+.btn-sm { height: 28px; padding: 0 10px; font-size: 13px; }
+.btn-lg { height: 46px; padding: 0 22px; font-size: 16px; }
+
+.btn-area { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.btn-area.right { justify-content: flex-end; }
+.btn-area.center { justify-content: center; }
+
+/* ---------------------------------------------------------------- 폼 요소 */
+input[type="text"], input[type="date"], input[type="search"], select, textarea {
+  height: 34px;
+  border: 1px solid #b9c0c8;
+  border-radius: 2px;
+  background: #fff;
+  padding: 0 8px;
+  font-size: 14px;
+}
+textarea { height: auto; min-height: 72px; padding: 6px 8px; resize: vertical; width: 100%; }
+input[type="text"]:focus, select:focus, textarea:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 1px var(--primary); }
+
+/* ---------------------------------------------------------------- 표 */
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  border-top: 2px solid var(--primary-dark);
+  font-size: 14px;
+}
+.tbl th, .tbl td { border-bottom: 1px solid var(--line); padding: 9px 10px; vertical-align: middle; }
+.tbl thead th {
+  background: var(--th);
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+.tbl thead th + th, .tbl tbody td + td { border-left: 1px solid var(--line); }
+.tbl tbody td { text-align: center; }
+.tbl td.left { text-align: left; }
+.tbl tbody tr.empty td { padding: 32px 10px; color: var(--muted); }
+
+.tbl-form { width: 100%; border-collapse: collapse; border-top: 2px solid var(--primary-dark); font-size: 14px; table-layout: fixed; }
+.tbl-form th, .tbl-form td { border-bottom: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: middle; }
+.tbl-form th { background: var(--th); font-weight: 600; color: var(--text-2); }
+.tbl-form td + th { border-left: 1px solid var(--line); }
+.tbl-form td { word-break: break-all; }
+
+/* ---------------------------------------------------------------- 상태 표시 */
+.badge {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.badge.info { color: var(--info); }
+.badge.ok { color: var(--ok); }
+.badge.warn { color: var(--warn); }
+.badge.danger { color: var(--danger); }
+.badge.fill { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+  margin: 28px 0 10px;
+}
+.h3::before { content: ""; width: 4px; height: 16px; background: var(--primary); }
+.h3 .sub { font-size: 13px; font-weight: 400; color: var(--muted); }
+
+.bullet > li { position: relative; padding-left: 12px; }
+.bullet > li + li { margin-top: 4px; }
+.bullet > li::before { content: ""; position: absolute; left: 0; top: 0.75em; width: 4px; height: 4px; background: var(--line-dark); }
+
+.point { color: var(--point); }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }

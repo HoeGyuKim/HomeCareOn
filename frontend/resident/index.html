@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>시설물 고장 음성접수 | HomeCareOn</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+  <link rel="stylesheet" href="/common/style.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#content">본문 바로가기</a>
+
+  <div class="util">
+    <div class="inner">
+      <p>시범 운영 중인 서비스입니다. 실제 서비스는 전화로 접수합니다.</p>
+      <ul>
+        <li><span id="nlu-mode">상담 엔진 확인 중</span></li>
+        <li><a href="/admin/">관리자 웹</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <header class="header">
+    <div class="inner">
+      <a class="logo" href="/resident/">
+        <span class="emblem" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="#fff" d="M12 3 2 11h3v9h5v-6h4v6h5v-9h3z"/></svg>
+        </span>
+        <span class="logo-txt">
+          <strong>HomeCareOn</strong>
+          <em>AI 음성 기반 주거시설 민원 접수 및 유지보수 연계 시스템</em>
+        </span>
+      </a>
+      <nav class="gnb" aria-label="주 메뉴">
+        <a href="/resident/" class="on" aria-current="page">음성 접수</a>
+        <a href="#guide">이용안내</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="location">
+    <div class="inner">
+      <span>홈</span><span>시설물 접수</span><strong>고장 음성접수</strong>
+    </div>
+  </div>
+
+  <main id="content" class="inner content">
+    <div class="tit-area">
+      <h2>시설물 고장 음성접수</h2>
+      <p>고장 내용을 말씀하시면 수선유지 기준에 따라 비용 부담을 먼저 안내해 드립니다. 방문 일정은 접수 후 담당 직원이 문자로 안내합니다.</p>
+    </div>
+
+    <ol id="steps" class="steps" aria-label="접수 단계">
+      <li><span class="num">STEP 01</span><span class="txt">세대 확인</span></li>
+      <li><span class="num">STEP 02</span><span class="txt">증상 파악</span></li>
+      <li><span class="num">STEP 03</span><span class="txt">비용 안내·접수 확인</span></li>
+      <li><span class="num">STEP 04</span><span class="txt">마무리</span></li>
+    </ol>
+    <p id="handoff" class="handoff" role="status" hidden>
+      담당 직원 확인이 필요한 건으로 접수되었습니다. 직원이 내용을 확인한 뒤 연락드립니다.
+    </p>
+
+    <div class="cols">
+      <section class="panel" aria-labelledby="log-title">
+        <div class="panel-head">
+          <h3 id="log-title">상담 내역</h3>
+          <button type="button" id="reset" class="btn btn-sm">새로 접수</button>
+        </div>
+
+        <div id="log" class="log" aria-live="polite"></div>
+
+        <div id="confirm-box" class="confirm-box" hidden>
+          <p>안내 내용으로 접수하시겠습니까?</p>
+          <div class="btn-area">
+            <button type="button" id="say-no" class="btn">아니요, 안내만 들을게요</button>
+            <button type="button" id="say-yes" class="btn btn-primary">네, 접수해 주세요</button>
+          </div>
+        </div>
+        <p id="done-note" class="notice-done" hidden></p>
+
+        <div class="input-area">
+          <div class="voice">
+            <button type="button" id="mic" class="btn btn-primary btn-lg mic">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+              <span id="mic-label">음성으로 말하기</span>
+            </button>
+            <p id="voice-status" class="voice-status">버튼을 누른 뒤 말씀하시면 자동으로 전달됩니다.</p>
+          </div>
+          <form id="composer" class="composer" autocomplete="off">
+            <label for="input">직접 입력</label>
+            <input type="text" id="input" maxlength="500" placeholder="예) 103동 1204호요">
+            <button type="submit" id="send" class="btn btn-dark">전송</button>
+          </form>
+          <div class="input-foot">
+            <label class="check"><input type="checkbox" id="speak" checked> 음성 안내 듣기</label>
+          </div>
+          <div id="examples" class="examples" aria-label="답변 예시"></div>
+        </div>
+      </section>
+
+      <aside class="side">
+        <h3 class="h3">접수 정보</h3>
+        <table class="tbl-form info">
+          <caption class="blind">현재 접수 정보</caption>
+          <colgroup><col style="width:96px"><col></colgroup>
+          <tbody>
+            <tr><th scope="row">세대</th><td id="f-address">-</td></tr>
+            <tr><th scope="row">설비</th><td id="f-equipment">-</td></tr>
+            <tr><th scope="row">증상</th><td id="f-symptom">-</td></tr>
+            <tr><th scope="row">해당 기준</th><td id="f-item">-</td></tr>
+            <tr><th scope="row">비용 부담</th><td id="f-payer">-</td></tr>
+            <tr><th scope="row">접수번호</th><td id="f-ticket">-</td></tr>
+          </tbody>
+        </table>
+
+        <div class="emergency">
+          <strong>긴급 상황 안내</strong>
+          <p>가스 누출·화재가 의심되면 즉시 대피 후 <b>119</b>로 신고하십시오.</p>
+        </div>
+      </aside>
+    </div>
+
+    <section id="guide" class="guide" aria-labelledby="guide-title">
+      <h3 id="guide-title" class="h3">이용안내</h3>
+      <div class="guide-box">
+        <ul class="bullet">
+          <li>동·호수를 먼저 말씀하신 뒤 고장 난 설비와 증상을 말씀해 주십시오. 예) "백삼 동 천이백사 호요" → "보일러에 에러 공삼이 뜨고 온수가 안 나와요"</li>
+          <li>비용 부담 안내는 SH 「시설물 수선비 비용부담 기준 2026」에 따른 <span class="point">사전 안내</span>이며, 최종 부담 주체는 현장 점검 후 달라질 수 있습니다.</li>
+          <li>안내를 들으신 뒤 접수 여부를 선택하실 수 있습니다. 접수하시면 담당 직원이 확인 후 <b>방문 일정을 문자로</b> 안내합니다.</li>
+          <li>기준에 없거나 판단이 어려운 경우, 인식이 반복해 어려운 경우에는 담당 직원 확인 건으로 넘어갑니다.</li>
+          <li>음성 접수는 Chrome 또는 Edge 브라우저에서 이용할 수 있으며, 처음 이용 시 마이크 권한을 허용해 주십시오.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="inner">
+      <strong>HomeCareOn · AI 음성 기반 주거시설 민원 접수 및 유지보수 연계 시스템</strong>
+      <p>본 시스템은 학습용 시범 시스템이며 실제 기관과 무관합니다. 세대·설비·업체 정보와 에러코드는 가상 데이터이며, 비용 부담 기준은 공개된 SH 기준 문서를 구조화한 자료입니다.</p>
+      <p class="copy">© 2026 HomeCareOn 팀</p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

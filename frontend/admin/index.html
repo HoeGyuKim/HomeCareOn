@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>접수 목록 | HomeCareOn 관리자 웹</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+  <link rel="stylesheet" href="/common/style.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="adm-header">
+    <a class="adm-logo" href="/admin/">
+      <span class="emblem" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="#fff" d="M12 3 2 11h3v9h5v-6h4v6h5v-9h3z"/></svg>
+      </span>
+      <strong>HomeCareOn</strong><span>관리자 웹</span>
+    </a>
+    <div class="adm-user">
+      <span><b>SH 담당 직원</b>(시범 계정)</span>
+      <span id="clock" class="clock"></span>
+      <a href="/resident/" class="btn btn-sm">거주자 접수 화면</a>
+    </div>
+  </header>
+
+  <div class="adm-body">
+    <nav class="lnb" aria-label="업무 메뉴">
+      <h2>민원관리</h2>
+      <ul>
+        <li><a href="#tickets" data-view="tickets">접수 목록</a></li>
+        <li><a href="#notifications" data-view="notifications">문자·전달 이력</a></li>
+      </ul>
+      <h2>기준정보</h2>
+      <ul>
+        <li><a href="#standard" data-view="standard">비용부담 기준</a></li>
+        <li><a href="#vendors" data-view="vendors">업체 현황</a></li>
+      </ul>
+    </nav>
+
+    <main class="adm-content">
+      <div class="adm-location" id="location"></div>
+      <h2 class="adm-title" id="page-title"></h2>
+
+      <!-- 접수 목록 -->
+      <section data-view="tickets">
+        <form id="search" class="search-box" aria-label="검색 조건">
+          <table class="search-tbl">
+            <colgroup><col style="width:100px"><col><col style="width:100px"><col><col style="width:100px"><col></colgroup>
+            <tbody>
+              <tr>
+                <th scope="row"><label for="s-status">처리상태</label></th>
+                <td><select id="s-status"><option value="">전체</option></select></td>
+                <th scope="row"><label for="s-facility">설비</label></th>
+                <td>
+                  <select id="s-facility">
+                    <option value="">전체</option>
+                    <option>보일러</option><option>누수</option><option>전기</option><option>문·창호</option>
+                    <option>주방</option><option>욕실</option><option>가스</option><option>기타</option>
+                  </select>
+                </td>
+                <th scope="row"><label for="s-address">세대</label></th>
+                <td><input type="text" id="s-address" placeholder="예) 103동 또는 1204호"></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="search-btns">
+            <button type="submit" class="btn btn-primary">조회</button>
+            <button type="button" id="search-reset" class="btn">초기화</button>
+          </div>
+        </form>
+
+        <div id="summary" class="summary" aria-label="처리상태별 건수"></div>
+
+        <div class="grid-top">
+          <p>총 <b id="total">0</b>건 <span id="updated" class="muted small"></span></p>
+          <button type="button" id="csv" class="btn btn-sm">엑셀(CSV) 다운로드</button>
+        </div>
+        <div class="tbl-wrap">
+          <table class="tbl grid">
+            <caption class="blind">접수 티켓 목록</caption>
+            <thead>
+              <tr>
+                <th scope="col">접수번호</th><th scope="col">접수일시</th><th scope="col">세대</th><th scope="col">설비</th>
+                <th scope="col">증상</th><th scope="col">사전 부담 안내</th><th scope="col">확정 부담</th>
+                <th scope="col">방문일시</th><th scope="col">업체</th><th scope="col">처리상태</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+
+        <div id="detail" class="detail" hidden></div>
+      </section>
+
+      <!-- 문자·전달 이력 -->
+      <section data-view="notifications" hidden>
+        <p class="desc">거주자 방문 일정 문자와 업체 전달 내역입니다. <span class="point">시범 운영 중이라 실제 발송 없이 기록만 남습니다.</span></p>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <caption class="blind">문자·전달 이력</caption>
+            <colgroup><col style="width:70px"><col style="width:150px"><col style="width:80px"><col style="width:120px"><col style="width:180px"><col></colgroup>
+            <thead><tr><th scope="col">번호</th><th scope="col">발송일시</th><th scope="col">접수번호</th><th scope="col">구분</th><th scope="col">수신</th><th scope="col">내용</th></tr></thead>
+            <tbody id="notification-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 비용부담 기준 -->
+      <section data-view="standard" hidden>
+        <p class="desc" id="standard-note"></p>
+        <form id="standard-search" class="search-box" aria-label="기준 검색">
+          <table class="search-tbl">
+            <colgroup><col style="width:100px"><col></colgroup>
+            <tbody>
+              <tr>
+                <th scope="row"><label for="q">검색어</label></th>
+                <td><input type="search" id="q" placeholder="예) 보일러 온수, 도어락, 천장 누수" style="max-width:420px"></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="search-btns">
+            <button type="submit" class="btn btn-primary">검색</button>
+          </div>
+        </form>
+        <div class="grid-top"><p id="standard-count"></p></div>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <caption class="blind">비용부담 기준 항목</caption>
+            <colgroup><col style="width:80px"><col style="width:60px"><col><col style="width:200px"><col style="width:200px"><col style="width:100px"></colgroup>
+            <thead><tr><th scope="col">항목 ID</th><th scope="col">구역</th><th scope="col">항목</th><th scope="col">임대인(SH) 부담</th><th scope="col">임차인 부담</th><th scope="col">시점 단서</th></tr></thead>
+            <tbody id="standard-rows"></tbody>
+          </table>
+        </div>
+        <h3 class="h3">본문 조항·용어 <span class="sub">principles.jsonl</span></h3>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <caption class="blind">본문 조항과 용어 정의</caption>
+            <colgroup><col style="width:70px"><col style="width:90px"><col style="width:200px"><col></colgroup>
+            <thead><tr><th scope="col">ID</th><th scope="col">구분</th><th scope="col">제목</th><th scope="col">내용</th></tr></thead>
+            <tbody id="principle-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 업체 현황 -->
+      <section data-view="vendors" hidden>
+        <p class="desc">설비 분류별 수리 업체·기사 현황입니다. (목업 데이터)</p>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <caption class="blind">업체 현황</caption>
+            <thead><tr><th scope="col">번호</th><th scope="col">업체명</th><th scope="col">담당 기사</th><th scope="col">처리 분야</th><th scope="col">연락처</th></tr></thead>
+            <tbody id="vendor-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <p class="adm-foot">본 시스템은 학습용 시범 시스템이며 실제 기관과 무관합니다. 세대·설비·업체 정보는 가상 데이터입니다.</p>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
