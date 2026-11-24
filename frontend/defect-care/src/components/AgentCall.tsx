@@ -1,6 +1,21 @@
 "use client";
 
-import { Ban, Bot, CheckCircle2, Circle, Loader2, MessageSquareText, Scale, SendHorizonal, ShieldAlert, User } from "lucide-react";
+import {
+  Ban,
+  Bot,
+  CheckCircle2,
+  Circle,
+  Loader2,
+  MessageSquareText,
+  Mic,
+  MicOff,
+  Scale,
+  SendHorizonal,
+  ShieldAlert,
+  User,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -48,22 +63,108 @@ function saveSessionId(id: string | null) {
   }
 }
 
+/** TTS 낭독용 텍스트 정제 (마크다운, 특수기호, 영문 티켓번호를 자연스러운 한국어 구어로 변환) */
+function cleanTextForSpeech(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "$1") // bold 제거
+    .replace(/\*(.*?)\*/g, "$1") // italic 제거
+    .replace(/TKT-[A-Za-z0-9-]+/gi, "접수 번호") // 티켓 번호 기계적 낭독 방지
+    .replace(/https?:\/\/\S+/g, "") // URL 제거
+    .replace(/[#\-~_]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** 가장 자연스러운 한국어 목소리(Microsoft Natural, Online, SunHi, Heami, Google 등) 선택 */
+function getBestKoreanVoice(): SpeechSynthesisVoice | null {
+  if (typeof window === "undefined" || !window.speechSynthesis) return null;
+  const voices = window.speechSynthesis.getVoices();
+  const koVoices = voices.filter((v) => v.lang.startsWith("ko") || v.lang.includes("KR"));
+  if (koVoices.length === 0) return null;
+
+  // 자연스러운 고품질 한국어 음성 우선순위 탐색
+  const preferred = koVoices.find(
+    (v) =>
+      v.name.includes("Natural") ||
+      v.name.includes("Online") ||
+      v.name.includes("SunHi") ||
+      v.name.includes("Heami") ||
+      v.name.includes("Google"),
+  );
+  return preferred || koVoices[0];
+}
+
 /**
- * AI 상담원과 글로 주고받는 접수 (번갈아 말하기)
- * - AI가 먼저 묻고, 민원인이 답하면 AI가 다음 질문 하나를 합니다.
- * - AI가 답하는 동안에는 입력할 수 없습니다.
+ * AI 상담원과 음성(STT/TTS) 및 글로 주고받는 민원 접수 화면
  */
 export default function AgentCall() {
   const [view, setView] = useState<CallView | null>(null);
   const [input, setInput] = useState("");
-  const [aiTurn, setAiTurn] = useState(true); // 처음엔 AI가 먼저 말함
+  const [aiTurn, setAiTurn] = useState(true);
   const [error, setError] = useState("");
+
+  // 음성 엔진(STT / TTS) 상태
+  const [isListening, setIsListening] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const lastSpokenIndexRef = useRef<number>(-1);
 
   const started = useRef(false);
 
-  /** 새 대화 시작 — 대화 번호를 브라우저 탭에 저장해 새로고침해도 이어지게 함 */
+  /** TTS 음성 발화 함수 */
+  const speak = (text: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis || !ttsEnabled) return;
+    try {
+      window.speechSynthesis.cancel();
+      const cleaned = cleanTextForSpeech(text);
+      if (!cleaned) return;
+
+      const utterance = new SpeechSynthesisUtterance(cleaned);
+      utterance.lang = "ko-KR";
+      utterance.rate = 1.0; // 자연스럽고 차분한 상담원 발화 속도
+      utterance.pitch = 1.0;
+
+      const voice = getBestKoreanVoice();
+      if (voice) utterance.voice = voice;
+
+      utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn("TTS speak error:", e);
+      setIsSpeaking(false);
+    }
+  };
+
+  /** 브라우저 음성 로드 이벤트 바인딩 */
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        // 음성 목록 갱신 트리거
+        window.speechSynthesis.getVoices();
+      };
+    }
+  }, []);
+
+  /** AI 상담원의 새 답변이 오면 자동으로 TTS 낭독 */
+  useEffect(() => {
+    if (!view || !view.messages || view.messages.length === 0) return;
+    const lastIdx = view.messages.length - 1;
+    const lastMsg = view.messages[lastIdx];
+
+    if (lastMsg.role === "agent" && lastIdx > lastSpokenIndexRef.current) {
+      lastSpokenIndexRef.current = lastIdx;
+      speak(lastMsg.text);
+    }
+  }, [view?.messages, ttsEnabled]);
+
+  /** 새 대화 시작 */
   const connect = () =>
     api<CallView>("/api/agent", { method: "POST", json: {} })
       .then((v) => {
@@ -74,7 +175,6 @@ export default function AgentCall() {
       .finally(() => setAiTurn(false));
 
   useEffect(() => {
-    // 개발 모드에서 effect가 두 번 실행돼도 대화는 하나만 만듦
     if (started.current) return;
     started.current = true;
     const saved = loadSessionId();
@@ -82,7 +182,6 @@ export default function AgentCall() {
       connect();
       return;
     }
-    // 진행 중이던 대화 이어 보기 (만료됐으면 새로 시작)
     api<CallView>("/api/agent", { method: "POST", json: { sessionId: saved } })
       .then((v) => {
         setView(v);
@@ -92,6 +191,15 @@ export default function AgentCall() {
   }, []);
 
   const restart = () => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    setIsSpeaking(false);
+    setIsListening(false);
+    lastSpokenIndexRef.current = -1;
     saveSessionId(null);
     setView(null);
     setError("");
@@ -103,40 +211,139 @@ export default function AgentCall() {
   const ended = view?.awaiting === "done";
   const myTurn = !!view && !aiTurn && !ended;
 
-  // 새 메시지가 오면 아래로, 내 차례가 되면 입력칸에 커서
+  // 새 메시지가 오면 아래로 스크롤
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-    if (myTurn) inputRef.current?.focus();
-  }, [view?.messages.length, aiTurn, myTurn]);
+    if (myTurn && !isListening) inputRef.current?.focus();
+  }, [view?.messages.length, aiTurn, myTurn, isListening]);
 
-  const send = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = input.trim();
+  /** 메시지 전송 로직 */
+  const sendMessage = async (rawText: string) => {
+    const text = rawText.trim();
     if (!text || !myTurn || !view) return;
+
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    }
+
     setInput("");
     setError("");
     setAiTurn(true);
-    // 내가 한 말은 바로 표시하고 AI 차례로 넘김
     setView({ ...view, messages: [...view.messages, { role: "caller", text, at: new Date().toISOString() }] });
+
     try {
       setView(await api<CallView>("/api/agent", { method: "POST", json: { sessionId: view.sessionId, message: text } }));
     } catch (err) {
       setError((err as Error).message);
-      setView(view); // 실패하면 보낸 말을 되돌리고 다시 입력하게 함
+      setView(view);
       setInput(text);
     } finally {
       setAiTurn(false);
     }
   };
 
+  const send = (e: React.FormEvent) => {
+    e.preventDefault();
+    sendMessage(input);
+  };
+
+  /** STT 마이크 토글 함수 (Web Speech API) */
+  const toggleListening = () => {
+    if (typeof window === "undefined") return;
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("현재 브라우저에서는 음성 인식을 지원하지 않습니다. Chrome 또는 Edge 브라우저를 이용해 주세요.");
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    // AI가 말하고 있으면 멈춤
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = "ko-KR";
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.continuous = false;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setError("");
+      };
+
+      recognition.onresult = (event: any) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        setInput(transcript);
+
+        // 발화가 최종 완료된 경우 (isFinal)
+        const isFinal = event.results[event.results.length - 1].isFinal;
+        if (isFinal && transcript.trim()) {
+          recognition.stop();
+          setIsListening(false);
+          // 0.3초 후 자동 전송
+          setTimeout(() => {
+            sendMessage(transcript);
+          }, 300);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn("STT 인식 이벤트:", event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error("STT 시작 실패:", err);
+      setIsListening(false);
+    }
+  };
+
+  const toggleTts = () => {
+    if (ttsEnabled) {
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      setIsSpeaking(false);
+      setTtsEnabled(false);
+    } else {
+      setTtsEnabled(true);
+    }
+  };
+
   const d = view?.decision;
   const dialogue = view?.engine === "dialogue";
-  // 대화 엔진은 첫 질문에서 동·호수와 계약자 성함을 함께 묻는다
   const hint = !view
     ? null
     : dialogue && view.awaiting === "dongho"
       ? { label: "동·호수와 계약자 성함을 말씀해 주세요", placeholder: "예: 103동 1204호 홍길동입니다" }
       : AWAITING_HINT[view.awaiting];
+
   const f = view?.form;
   const fields: [string, string][] = f
     ? [
@@ -152,23 +359,44 @@ export default function AgentCall() {
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      {/* 대화 */}
+      {/* 대화 영역 */}
       <section className="card flex h-[min(44rem,calc(100dvh-11rem))] min-h-[30rem] flex-col overflow-hidden">
+        {/* 상단 헤더 바 */}
         <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
-          <span className="flex size-9 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+          <span className={cn("flex size-9 items-center justify-center rounded-full transition-colors", isSpeaking ? "bg-emerald-100 text-emerald-700 animate-pulse" : "bg-blue-100 text-blue-700")}>
             <Bot className="size-4" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-slate-900">AI 상담원 접수 (글로 대화)</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-slate-900">AI 시설물 접수센터 (음성 통화)</p>
+              {isSpeaking && (
+                <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
+                  <span className="size-1.5 rounded-full bg-emerald-600 animate-ping" /> 상담원 안내 중
+                </span>
+              )}
+            </div>
             <p className="truncate text-[11px] text-slate-500">
-              {view ? engineLabel(view) : "연결 중…"}
+              {view ? engineLabel(view) : "연결 중…"} · 한국어 음성(STT/TTS) 연동
             </p>
           </div>
+
+          {/* 음성 안내 켜기/끄기 토글 버튼 */}
+          <button
+            type="button"
+            onClick={toggleTts}
+            className={cn("btn-secondary px-2.5 py-1.5 text-xs flex items-center gap-1", ttsEnabled ? "text-blue-700 bg-blue-50/80" : "text-slate-400")}
+            title={ttsEnabled ? "음성 안내 끄기" : "음성 안내 켜기"}
+          >
+            {ttsEnabled ? <Volume2 className="size-3.5" /> : <VolumeX className="size-3.5" />}
+            <span className="hidden sm:inline">{ttsEnabled ? "음성 켜짐" : "음소거"}</span>
+          </button>
+
           <button onClick={restart} disabled={aiTurn && !ended} className="btn-secondary px-2.5 py-1.5 text-xs">
             새 대화
           </button>
         </div>
 
+        {/* 메시지 대화창 */}
         <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto bg-slate-50/60 px-4 py-4">
           {view?.messages.map((m, i) => {
             const ai = m.role === "agent";
@@ -193,7 +421,7 @@ export default function AgentCall() {
           })}
           {aiTurn && (
             <div className="flex items-center gap-2 pl-9 text-xs text-slate-400">
-              <Loader2 className="size-3.5 animate-spin" /> {view ? "AI 상담원이 답변을 작성하고 있어요…" : "상담원 연결 중…"}
+              <Loader2 className="size-3.5 animate-spin" /> {view ? "AI 상담원이 답변을 생각하고 있어요…" : "상담원 연결 중…"}
             </div>
           )}
           {ended && <p className="py-2 text-center text-xs text-slate-400">— 대화가 끝났습니다. 새로 접수하려면 ‘새 대화’를 누르세요 —</p>}
@@ -202,23 +430,57 @@ export default function AgentCall() {
         {view?.notice && <div className="border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">{view.notice}</div>}
         {error && <div className="px-4 pt-3"><ErrorBox message={error} /></div>}
 
+        {/* 하단 음성 마이크 및 텍스트 입력 바 */}
         {!ended && (
-          <form onSubmit={send} className="space-y-1.5 border-t border-slate-100 p-3">
-            <p className={cn("flex items-center gap-1.5 px-1 text-xs font-medium", myTurn ? "text-blue-700" : "text-slate-400")}>
-              <span className={cn("size-2 rounded-full", myTurn ? "animate-pulse bg-blue-600" : "bg-slate-300")} />
-              {myTurn ? `내 차례 — ${hint?.label}` : "AI 차례 — 답변을 기다려 주세요"}
+          <form onSubmit={send} className="space-y-1.5 border-t border-slate-100 p-3 bg-white">
+            <p className={cn("flex items-center gap-1.5 px-1 text-xs font-medium", isListening ? "text-red-600" : myTurn ? "text-blue-700" : "text-slate-400")}>
+              <span className={cn("size-2 rounded-full", isListening ? "bg-red-500 animate-ping" : myTurn ? "animate-pulse bg-blue-600" : "bg-slate-300")} />
+              {isListening
+                ? "🎙️ 말씀해 주세요, 듣고 있습니다... (말이 끝나면 자동 전송)"
+                : myTurn
+                  ? `내 차례 — ${hint?.label || "말씀하시거나 입력하세요"}`
+                  : "AI 차례 — 답변을 기다려 주세요"}
             </p>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              {/* STT 마이크 버튼 */}
+              <button
+                type="button"
+                onClick={toggleListening}
+                disabled={!myTurn}
+                className={cn(
+                  "flex size-10 shrink-0 items-center justify-center rounded-xl transition-all border",
+                  isListening
+                    ? "bg-red-600 text-white border-red-700 shadow-md shadow-red-200 animate-pulse"
+                    : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 disabled:opacity-40 disabled:hover:bg-slate-100 disabled:hover:text-slate-700",
+                )}
+                title={isListening ? "음성 인식 중지" : "마이크로 말하기"}
+                aria-label={isListening ? "음성 인식 중지" : "마이크로 말하기"}
+              >
+                {isListening ? <MicOff className="size-4 animate-bounce" /> : <Mic className="size-4" />}
+              </button>
+
+              {/* 텍스트 입력창 */}
               <input
                 ref={inputRef}
-                className="input"
-                placeholder={myTurn ? hint?.placeholder : "AI가 답변하는 중입니다"}
+                className={cn(
+                  "input flex-1",
+                  isListening && "border-red-400 bg-red-50/30 placeholder:text-red-500",
+                )}
+                placeholder={
+                  isListening
+                    ? "듣고 있습니다... 말씀해 주세요"
+                    : myTurn
+                      ? hint?.placeholder || "마이크 버튼을 누르거나 글을 입력하세요"
+                      : "AI가 안내하는 중입니다"
+                }
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 disabled={!myTurn}
                 maxLength={1000}
               />
-              <button type="submit" className="btn-primary shrink-0 px-3.5" disabled={!myTurn || !input.trim()} aria-label="보내기">
+
+              {/* 전송 버튼 */}
+              <button type="submit" className="btn-primary shrink-0 px-3.5 h-10 rounded-xl" disabled={!myTurn || !input.trim()} aria-label="보내기">
                 <SendHorizonal className="size-4" />
               </button>
             </div>
