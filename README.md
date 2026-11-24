@@ -128,27 +128,44 @@ flowchart TD
 ## 디렉토리 구조
 
 ```
-homecaron/
-├── backend/     # FastAPI 서버, 대화 오케스트레이터, 도구 API, DB
-├── frontend/    # 관리자 웹, 웹 마이크 접수 화면
-├── knowledge/   # 수선유지 기준 문서, 에러코드 매뉴얼, 비용 부담 규칙 표, 목업 데이터
-│   ├── sources/        # 원본 문서 (SH 비용부담 기준 HWP·PDF)
-│   ├── cost_standard/  # 비용부담 기준을 구조화한 RAG 데이터 (항목 457개, 조항·용어 40개)
-│   └── tools/          # 원본 → 구조화 데이터 변환 스크립트
-├── tests/       # 테스트 시나리오와 결과표
-└── docs/        # 설계 문서, API 명세, 회의록
+HomeCareOn/
+├── backend/
+│   ├── server.py        # 대화 엔진 API 서버 (FastAPI, 포트 8100)
+│   ├── dialogue/        # A: 대화 오케스트레이터 — 상태머신, Gemini 연동, 동호수·이름 추출, 도구 호출(tools.py)
+│   └── rag/             # B: 수선유지 RAG — 항목 검색(retriever), 원인 분류(causes), 비용 부담 판정(liability)
+├── frontend/
+│   └── defect-care/     # C: 관리자 웹 (Next.js) — 대시보드, 민원 관리, 업체 배정, AI 전화 접수 화면
+├── knowledge/
+│   ├── sources/         # 원본 문서 (SH 비용부담 기준 HWP·PDF)
+│   ├── cost_standard/   # 비용부담 기준 구조화 데이터 (항목 457개, 조항·용어 40개, 구어 별칭)
+│   └── tools/           # 원본 → 구조화 데이터 변환 스크립트
+├── tests/               # RAG 판정·대화 시나리오·API 테스트 (pytest)
+└── docs/                # 설계 문서, 회의록
 ```
+
+### 통합 구조
+
+```
+거주자 ─(글/음성)→ 관리자 웹 AI 전화 접수 ─POST /api/agent→ 대화 엔진 서버(8100)
+                                                              ├─ 수선유지 RAG: 항목 검색 → 비용 부담 판정 (규칙)
+                                                              └─ 접수 확정 시 → 관리자 웹 POST /api/complaints
+                                                                                 → 민원 저장 + 업체 자동 배정
+```
+
+- **대화**는 대화 엔진(`backend/dialogue`)이, **판정**은 RAG(`backend/rag`)가, **저장·배정·관리 화면**은 관리자 웹(`frontend/defect-care`)이 맡습니다.
+- 비용 부담은 LLM이 정하지 않습니다. RAG가 기준표 항목을 찾고, 거주자가 말한 원인과 입주일로 규칙 코드가 판정합니다. 근거는 항목 원문으로 민원에 함께 남습니다.
+- 대화 엔진 서버가 꺼져 있으면 관리자 웹은 자체 내장 상담원으로 동작합니다.
 
 ## 기술 스택
 
 | 영역 | 선택 |
 |---|---|
-| 백엔드 | Python, FastAPI |
-| DB | 미정 |
-| LLM | 미정 |
-| STT / TTS | 미정 |
-| 임베딩·벡터 검색 | 미정 |
-| 프런트엔드 | 미정 |
+| 대화 엔진·RAG 서버 | Python, FastAPI |
+| 관리자 웹 | Next.js (React, TypeScript, Tailwind) |
+| DB | 테스트 모드는 메모리 저장, 운영은 Supabase(PostgreSQL) |
+| LLM | Gemini (대화 생성·정보 추출). 키가 없으면 규칙 모드 |
+| STT / TTS | 브라우저 Web Speech API (웹 마이크) |
+| 검색 | 한글 글자 n-gram BM25 + 구어 별칭. 임베딩 검색은 추후 |
 | 전화 연동 | 미정 (초기에는 웹 마이크로 대체) |
 | 문자 알림 | 목업 → 실제 발송은 추후 결정 |
 
@@ -163,4 +180,50 @@ homecaron/
 
 ## 실행 방법
 
-아직 코드가 없습니다. 백엔드·프런트엔드 골격이 잡히면 이 절에 설치와 실행 방법을 적습니다.
+서버 두 개를 띄웁니다. Windows PowerShell 기준이며, 저장소 루트에서 실행합니다.
+
+**처음 한 번만**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+cd frontend\defect-care; npm install; cd ..\..
+```
+
+**1. 대화 엔진 서버 (포트 8100)**
+
+```powershell
+.venv\Scripts\python -m uvicorn backend.server:app --port 8100
+```
+
+**2. 관리자 웹 (포트 3000)**
+
+```powershell
+cd frontend\defect-care; npm run dev
+```
+
+http://localhost:3000 → 왼쪽 메뉴 **AI 전화 접수**에서 대화해 보면 됩니다. 접수하면 **민원 접수 관리**에 올라오고 업체가 자동 배정됩니다.
+
+| 시연 세대 | 계약자 | 특징 |
+|---|---|---|
+| 103동 1204호 | 홍길동 | 입주 5년 차, 한빛센트럴(강남구) |
+| 101동 501호 | 이영희 | 푸른숲마을(송파구) |
+| 105동 1501호 | 김민수 | 입주 1개월 이내 — "입주후 1개월내" 기준 확인용 |
+
+**설정 (선택)**
+
+| 항목 | 위치 | 설명 |
+|---|---|---|
+| `GEMINI_API_KEY` | 저장소 루트 `.env` | 넣으면 Gemini로 자연스러운 대화, 없으면 규칙 모드 (`.gitignore`에 포함) |
+| `HOMECAREON_WEB_URL` | 대화 엔진 환경변수 | 접수를 등록할 관리자 웹 주소. 기본 `http://127.0.0.1:3000` |
+| `DIALOGUE_API_URL` | 관리자 웹 `.env.local` | 대화 엔진 주소. 기본 `http://127.0.0.1:8100` |
+| `AGENT_ENGINE=builtin` | 관리자 웹 `.env.local` | 대화 엔진 대신 웹 내장 상담원 사용 |
+
+**테스트**
+
+```powershell
+.venv\Scripts\python -m pytest
+```
+
+- `tests/test_rag.py`: 거주자 표현 25개의 검색·판정 시나리오. 새 사례는 표에 한 줄씩 추가합니다.
+- 검색이 틀리면 `knowledge/cost_standard/aliases.csv`에 거주자 표현을 추가하고, 판정이 틀리면 `backend/rag/causes.py`의 원인 패턴을 고칩니다.
