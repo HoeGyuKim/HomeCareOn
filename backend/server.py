@@ -22,7 +22,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from backend import rag
-from backend.dialogue.llm_client import load_api_key
+from backend.dialogue.llm_client import llm_status, load_api_key
 from backend.dialogue.orchestrator import DialogueOrchestrator
 from backend.dialogue.state import DialogueState
 
@@ -51,7 +51,8 @@ def _view(session_id: str, orc: DialogueOrchestrator, reply: str) -> Dict[str, A
         awaiting = "name"
     return {
         "session_id": session_id,
-        "engine": "gemini" if orc.use_llm else "rules",
+        # Gemini가 실패 후 쉬는 중이면 실제로는 규칙 모드로 답하므로 화면에도 그렇게 표시
+        "engine": "gemini" if orc.use_llm and llm_status()["available"] else "rules",
         "state": orc.state.value,
         "awaiting": awaiting,
         "reply": reply,
@@ -90,7 +91,7 @@ def root():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "llm": bool(load_api_key()), "items": len(rag.load_items())}
+    return {"ok": True, "llm": bool(load_api_key()), "gemini": llm_status(), "items": len(rag.load_items())}
 
 
 @app.post("/api/dialogue/sessions")

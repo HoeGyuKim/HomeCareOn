@@ -217,6 +217,9 @@ http://localhost:3000 → 왼쪽 메뉴 **AI 전화 접수**에서 대화해 보
 | 항목 | 위치 | 설명 |
 |---|---|---|
 | `GEMINI_API_KEY` | 저장소 루트 `.env` | 넣으면 Gemini로 자연스러운 대화, 없으면 규칙 모드 (`.gitignore`에 포함) |
+| `GEMINI_MODEL` | 저장소 루트 `.env` 또는 환경변수 | 사용할 Gemini 모델. 기본 `gemini-3.5-flash-lite` (`-latest` 별칭은 모델이 몰래 바뀌어 쓰지 않음) |
+| `GEMINI_TIMEOUT` | 〃 | Gemini 한 번 호출을 기다리는 최대 초. 기본 `4`. 넘으면 규칙 문장으로 답함 |
+| `GEMINI_COOLDOWN` | 〃 | 시간 초과·서버 오류(5xx, 429) 후 Gemini를 쉬는 초. 기본 `60`. 그동안 모든 통화가 바로 규칙 모드로 답함 |
 | `HOMECAREON_WEB_URL` | 대화 엔진 환경변수 | 접수를 등록할 관리자 웹 주소. 기본 `http://127.0.0.1:3000` |
 | `DIALOGUE_API_URL` | 관리자 웹 `.env.local` | 대화 엔진 주소. 기본 `http://127.0.0.1:8100` |
 | `AGENT_ENGINE=builtin` | 관리자 웹 `.env.local` | 대화 엔진 대신 웹 내장 상담원 사용 |

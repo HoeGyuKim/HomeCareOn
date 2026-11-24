@@ -3,6 +3,9 @@ Google Gemini API 연동 클라이언트 모듈 (개선 버전)
 """
 import os
 import json
+import socket
+import time
+import urllib.error
 import urllib.request
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -50,15 +53,57 @@ def save_api_key(api_key: str) -> None:
         f.writelines(lines)
 
 
+def _setting(name: str, default: str) -> str:
+    """환경변수 → 저장소 루트 .env → 기본값 순으로 설정값을 읽는다."""
+    if os.getenv(name):
+        return os.environ[name]
+    env_file = get_env_path()
+    if env_file.exists():
+        with open(env_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip().startswith(f"{name}="):
+                    return line.split("=", 1)[1].strip()
+    return default
+
+
+# ── Gemini 안정화 설정 ──
+# 모델은 '-latest' 별칭 대신 버전을 고정한다 (별칭은 모델이 바뀌어도 모르고 지나감. 26.11.24 기준 -latest = 3.5-flash-lite)
+GEMINI_MODEL = _setting("GEMINI_MODEL", "gemini-3.5-flash-lite")
+# 한 번 호출을 기다리는 최대 시간(초). 넘으면 규칙 문장으로 답한다. 정상 응답은 보통 1~2초
+GEMINI_TIMEOUT = float(_setting("GEMINI_TIMEOUT", "4"))
+# 시간 초과·서버 오류(5xx, 429)가 나면 이 시간(초) 동안 Gemini를 부르지 않고 바로 규칙 모드로 답한다
+GEMINI_COOLDOWN = float(_setting("GEMINI_COOLDOWN", "60"))
+
+# 프로세스 전체가 공유하는 상태: Gemini가 혼잡하면 다른 통화도 기다리지 않게 한다
+_down_until = 0.0
+_last_error = ""
+
+
+def llm_status() -> Dict[str, Any]:
+    """지금 Gemini를 쓰는지 (헬스 체크·화면 표시용)."""
+    left = max(0.0, _down_until - time.time())
+    return {"model": GEMINI_MODEL, "timeout": GEMINI_TIMEOUT, "available": left == 0,
+            "cooldown_left": round(left, 1), "last_error": _last_error}
+
+
+def _mark_down(reason: str) -> None:
+    global _down_until, _last_error
+    _down_until = time.time() + GEMINI_COOLDOWN
+    _last_error = reason
+    print(f"[Gemini] {reason} → {GEMINI_COOLDOWN:g}초 동안 규칙 모드로 응답")
+
+
 class GeminiClient:
-    def __init__(self, model_name: str = "gemini-flash-lite-latest"):
+    def __init__(self, model_name: Optional[str] = None):
         self.api_key = load_api_key()
-        self.model_name = model_name
+        self.model_name = model_name or GEMINI_MODEL
         self.base_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
 
     def call_gemini(self, system_instruction: str, user_prompt: str, json_mode: bool = False) -> str:
         if not self.api_key:
             return ""
+        if time.time() < _down_until:
+            return ""  # 최근 실패 후 쉬는 중: 기다리지 않고 규칙 문장으로
 
         contents = [{"parts": [{"text": f"System: {system_instruction}\n\nUser: {user_prompt}"}]}]
         body: Dict[str, Any] = {"contents": contents}
@@ -76,7 +121,7 @@ class GeminiClient:
         req = urllib.request.Request(self.base_url, data=data, headers={"Content-Type": "application/json"})
 
         try:
-            with urllib.request.urlopen(req, timeout=12) as response:
+            with urllib.request.urlopen(req, timeout=GEMINI_TIMEOUT) as response:
                 result = json.loads(response.read().decode("utf-8"))
                 candidates = result.get("candidates", [])
                 if not candidates:
@@ -90,6 +135,15 @@ class GeminiClient:
                     full_text = self._ensure_complete_sentence(full_text)
 
                 return full_text
+        except urllib.error.HTTPError as e:
+            if e.code >= 500 or e.code == 429:  # 혼잡·서버 오류 → 잠시 쉼
+                _mark_down(f"HTTP {e.code}")
+            else:  # 400 등 요청 문제는 쉬어도 낫지 않으므로 알리기만 함
+                print(f"[Gemini API Notice] HTTP {e.code}")
+            return ""
+        except (TimeoutError, socket.timeout, urllib.error.URLError) as e:
+            _mark_down(f"시간 초과({GEMINI_TIMEOUT:g}초)" if "timed out" in str(e) or isinstance(e, TimeoutError) else f"연결 실패: {e}")
+            return ""
         except Exception as e:
             print(f"[Gemini API Notice] {e}")
             return ""
