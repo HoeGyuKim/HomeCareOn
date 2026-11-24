@@ -38,3 +38,22 @@ def test_rag_endpoints(client):
     assert c[0]["id"] == "1-4-23"
     d = client.post("/api/rag/decide", json={"item_id": "1-4-23", "cause": "휴지를 많이 넣었어요"}).json()
     assert d["verdict"] == "TENANT_PAY" and d["defect_type"] == "LEAK_PIPE"
+
+
+def test_tts_endpoint(client):
+    res = client.get("/api/tts", params={"text": "안녕하세요"})
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "audio/mpeg"
+    assert len(res.content) > 1000
+
+
+def test_stt_endpoint(client):
+    # 빈 텍스트 요청 검증 또는 오디오 업로드 검증
+    tts_res = client.get("/api/tts", params={"text": "온수가 안 나와요"})
+    assert tts_res.status_code == 200
+    res = client.post("/api/stt", files={"file": ("test.mp3", tts_res.content, "audio/mpeg")})
+    assert res.status_code == 200
+    data = res.json()
+    assert "text" in data
+    assert "온수" in data["text"]
+
