@@ -26,7 +26,7 @@ def test_call_flow(client):
         r = client.post(f"/api/dialogue/sessions/{sid}/messages", json={"text": text}).json()
         assert r["awaiting"] == awaiting, r["reply"]
     s = r["session"]
-    assert s["liability_verdict"] == "SH_REPAIR" and s["ticket_id"]
+    assert s["liability_verdict"] == "SH_REPAIR" and s["ticket_id"]  # 웹 주소를 비워 임시 번호로 종료
 
 
 def test_unknown_session(client):

@@ -126,6 +126,37 @@ def speak_name(item: Item) -> str:
     return f"{label} {detail}".strip()
 
 
+def _ro(word: str) -> str:
+    """'(으)로' 조사: 받침 없거나 ㄹ받침이면 '로', 그 외 받침이면 '으로'"""
+    ch = word.rstrip(" )")[-1:] if word else ""
+    if ch and "가" <= ch <= "힣":
+        jong = (ord(ch) - 0xAC00) % 28
+        return word + ("로" if jong in (0, 8) else "으로")
+    return word + "(으)로"
+
+
+def inspection_note(item: Item | None, move_in_date: str | date | None = None, today: date | None = None) -> str:
+    """'원인을 어떻게 아느냐'에 대한 답: 방문 점검과 SH 직원 검토로 정해지며, 점검 결과별로 누가 부담하는지.
+    원인을 단정하지 않고 기준표 해당 항목의 칸만 그대로 읽어 준다."""
+    head = ("원인은 직접 판단하지 않으셔도 됩니다. 접수하시면 기사님이 방문해 {what} 상태를 점검하고, "
+            "SH 담당 직원이 점검 결과를 검토해 최종 부담을 결정합니다.")
+    if item is None:
+        return head.format(what="시설물") + " 기준표에 바로 해당하는 항목이 없어 담당 직원이 기준을 확인해 안내해 드립니다."
+    recent = is_recent(move_in_date, today)
+    land = _say([e for e in item.landlord if not (e.timing and not recent)])
+    tenant = _say(item.tenant)
+    payer = "관리비(입주자 공동부담)" if item.zone == "공용" else "거주자 부담"
+    if land and tenant:
+        tail = f" 점검에서 {_ro(land)} 확인되면 SH 부담, {_ro(tenant)} 확인되면 {payer}입니다."
+    elif land:
+        tail = f" 점검에서 {_ro(land)} 확인되면 SH 부담입니다."
+    elif tenant:
+        tail = f" 기준표상 이 항목은 {_ro(tenant)} 확인되면 {payer}입니다."
+    else:
+        tail = ""
+    return head.format(what=speak_name(item)) + tail
+
+
 def _basis(item: Item) -> str:
     return (f"[별표2] {item.full_path} — 임대인부담: {item.landlord_raw or '해당 없음'} / "
             f"임차인부담: {item.tenant_raw or '해당 없음'}"
@@ -153,7 +184,10 @@ def decide_liability(item: Item, cause_text: str = "", symptom_text: str = "",
             explanation += " 결로·곰팡이는 평소 환기와 온·습도 관리가 거주자 의무라 점검 결과에 따라 부담이 달라질 수 있습니다."
         basis = _basis(item)
         for pid in pids or []:
-            basis += f" / {pid}: {principles[pid].text}"
+            text = principles[pid].text
+            if pid == "P12" and "기타 명기" in text:
+                text = text[text.index("기타 명기"):]  # P12 앞부분(장애인 주거편의)은 이 판정과 무관
+            basis += f" / {pid}: {text}"
         cost_possible = verdict in (TENANT_PAY, SITE_CHECK, MGMT_FEE) or bool(item.tenant)
         return Decision(verdict, PARTY[verdict], cost_possible, item.id, item.name, ordered, decided_by,
                         basis, pids or [], explanation)

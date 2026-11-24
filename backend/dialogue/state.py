@@ -13,8 +13,9 @@ class DialogueState(str, Enum):
     ASK_FACILITY = "ASK_FACILITY"           # 어떤 시설물에 문제가 있는지 질문 (에러코드 등 기술 용어 제외)
     PROBE_CAUSE = "PROBE_CAUSE"             # 고장 발생 경위 및 노후/부주의/상태 확인 질문
     ADVISE_COST = "ADVISE_COST"             # 수선비용 부담 기준 안내 및 기사 방문 접수 여부 확인
-    TICKET_ISSUED = "TICKET_ISSUED"         # 접수 티켓 생성 완료
-    CLOSED = "CLOSED"                       # 통화 종료
+    SCHEDULE_SENT = "SCHEDULE_SENT"         # 방문 희망일 선택 링크 문자 발송 → 통화 종료 (날짜를 고르면 접수 완료)
+    TICKET_ISSUED = "TICKET_ISSUED"         # 문자 발송 실패 시 임시 접수번호만 발급하고 종료
+    CLOSED = "CLOSED"                       # 통화 종료 (접수 안 함)
 
 
 class SessionData(BaseModel):
@@ -48,12 +49,13 @@ class SessionData(BaseModel):
     liability_explanation: Optional[str] = Field(None, description="거주자에게 안내한 판정 설명")
     resident_cost_possible: bool = Field(False, description="사용자 부주의 시 거주자 비용 발생 가능성 여부")
 
-    # 4. 접수 티켓 정보 (관리자 웹 등록)
-    ticket_id: Optional[str] = Field(None, description="접수번호 (관리자 웹 등록 시 웹의 접수번호)")
-    complaint_id: Optional[str] = Field(None, description="관리자 웹 민원 id")
-    contractor_name: Optional[str] = Field(None, description="자동 배정된 업체")
-    ticket_registered: bool = Field(False, description="관리자 웹에 등록되었는지")
-    ticket_error: Optional[str] = Field(None, description="관리자 웹 등록 실패 사유")
+    # 4. 접수 (거주자가 문자 링크에서 방문 희망일을 고르면 관리자 웹에 민원으로 접수됨)
+    intake_token: Optional[str] = Field(None, description="관리자 웹 접수 대기 토큰")
+    schedule_link: Optional[str] = Field(None, description="방문 희망일 선택 링크")
+    sms_text: Optional[str] = Field(None, description="거주자에게 보낸 문자 내용")
+    sms_to: Optional[str] = Field(None, description="문자 받은 번호")
+    ticket_id: Optional[str] = Field(None, description="문자 발송 실패 시 발급한 임시 접수번호")
+    ticket_error: Optional[str] = Field(None, description="관리자 웹 연결·문자 발송 실패 사유")
     call_summary: Optional[str] = Field(None, description="통화 1줄 요약")
     
     # 대화 기록 (User / Assistant)

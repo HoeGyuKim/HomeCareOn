@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Next.js 앱 소스 폴더(src/lib)는 위의 Python용 "lib/" 규칙에서 제외 (빠지면 웹 앱이 실행되지 않음)
+!frontend/defect-care/src/lib/

@@ -44,9 +44,9 @@ def test_improved_dialogue_scenario():
     print(f"  ✓ 대상 설비: {session['device_category']}")
     print(f"  ✓ 고장 경위: {session['cause_detail']}")
     print(f"  ✓ 판정 결과: {session['liability_party']}")
-    print(f"  ✓ 발행 티켓: {session['ticket_id']}")
+    print(f"  ✓ 희망일 선택 링크: {session['schedule_link']} / 임시 접수번호: {session['ticket_id']}")
     assert session['is_resident_verified'] is True
-    assert session['ticket_id'] is not None
+    assert session['schedule_link'] or session['ticket_id']
     print("\n🎉 모든 개선 시나리오가 자연스럽게 성공했습니다!")
 
 

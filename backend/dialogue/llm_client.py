@@ -103,12 +103,12 @@ class GeminiClient:
         if trimmed.endswith(valid_endings):
             return trimmed
 
+        # 잘린 문장은 마지막으로 끝난 문장까지만 쓴다.
+        # (예전처럼 "방문 접수를 도와드릴까요?"를 덧붙이면 접수 질문 단계가 아닌데도 접수를 묻게 됨)
         last_dot = max(trimmed.rfind('.'), trimmed.rfind('!'), trimmed.rfind('?'), trimmed.rfind('\n'))
-        if last_dot > len(trimmed) // 2:
-            clean_prefix = trimmed[:last_dot + 1].strip()
-            return f"{clean_prefix}\n\n점검 기사님 방문 접수를 도와드릴까요?"
-
-        return f"{trimmed} 점검 기사님 방문 접수를 도와드릴까요?"
+        if last_dot > 0:
+            return trimmed[:last_dot + 1].strip()
+        return ""  # 온전한 문장이 하나도 없으면 빈 문자열 → 오케스트레이터가 규칙 기반 문장을 씀
 
     def extract_information(self, state: str, user_utterance: str, current_session: Dict[str, Any]) -> Dict[str, Any]:
         system_instruction = (
@@ -163,9 +163,10 @@ class GeminiClient:
             "1. 거주자는 일반인이므로 에러코드, 모델명 같은 어려운 전문/기술 용어는 먼저 묻지 마. "
             "   그냥 '어떤 시설물에 문제가 있으신가요?'라고만 쉽게 물어봐.\n"
             "2. 제공된 [팩트 및 지침]의 내용에만 근거해서 답해. 없는 일정이나 가짜 규정을 지어내면 절대 안 됨.\n"
-            "3. 방문 일정은 AI가 정하지 않고 '담당 직원이 확인 후 문자로 방문 일정을 안내한다'고 답해.\n"
-            "4. 전화상으로 고장 경위나 혹시 파손/충격/동파 같은 상황이 있었는지 자연스럽고 부담 없게 물어봐.\n"
-            "5. 반드시 문장을 끝까지 온전하게 완성해. 문장이 중간에 잘리지 않도록 주의하고, 마지막에는 방문 접수 의사를 물어봐.\n"
+            "3. 방문 날짜는 AI가 정하거나 약속하지 마. 접수에 동의하면 거주자가 문자 링크에서 희망 날짜를 고른다.\n"
+            "4. 고장 경위나 파손/충격/동파 여부는 [상담 지침]이 물어보라고 할 때만 자연스럽고 부담 없게 물어봐.\n"
+            "5. 반드시 문장을 끝까지 온전하게 완성해. 질문은 [상담 지침]이 시킨 것 하나만 하고, "
+            "지침에 없으면 방문 접수 의사를 묻지 마.\n"
             "6. 2~3문장 이내로 편안하고 부드러운 음성 대화체('~해요', '~드릴게요')로 답변해줘."
         )
 

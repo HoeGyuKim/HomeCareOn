@@ -14,11 +14,12 @@ import re
 from datetime import date
 
 from .liability import MGMT_FEE, PARTY, SH_REPAIR, SITE_CHECK, TENANT_PAY, Decision, decide_liability
+from .liability import inspection_note as _inspection_note
 from .retriever import Candidate, get_retriever
 from .store import Item, get_item, load_items, load_principles
 
 __all__ = [
-    "search_policy", "decide", "defect_type_of", "get_item", "load_items", "load_principles",
+    "search_policy", "decide", "defect_type_of", "inspection_note", "get_item", "load_items", "load_principles",
     "Decision", "Candidate", "Item", "PARTY", "SH_REPAIR", "MGMT_FEE", "SITE_CHECK", "TENANT_PAY",
 ]
 
@@ -36,6 +37,11 @@ def decide(item_id: str, cause_text: str = "", symptom_text: str = "",
     if item is None:
         raise KeyError(f"없는 항목 id: {item_id}")
     return decide_liability(item, cause_text, symptom_text, move_in_date, today)
+
+
+def inspection_note(item_id: str | None, move_in_date: str | None = None, today: date | None = None) -> str:
+    """'원인을 어떻게 아나요?' 같은 질문에 대한 답 (방문 점검·SH 직원 검토 후 결정 + 결과별 부담)."""
+    return _inspection_note(get_item(item_id) if item_id else None, move_in_date, today)
 
 
 # 관리자 웹(defect-care)의 하자 유형 코드

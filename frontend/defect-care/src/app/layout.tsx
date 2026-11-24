@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Noto_Sans_KR } from "next/font/google";
-import AppShell from "@/components/AppShell";
 import "./globals.css";
 
 const notoKr = Noto_Sans_KR({
@@ -18,7 +17,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="ko" className={`${notoKr.variable} h-full antialiased`}>
       <body className="min-h-full font-sans">
-        <AppShell>{children}</AppShell>
+        {children}
       </body>
     </html>
   );

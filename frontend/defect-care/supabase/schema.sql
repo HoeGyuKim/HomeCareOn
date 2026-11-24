@@ -41,9 +41,13 @@ create table if not exists complaints (
   channel          text not null default 'MANUAL' check (channel in ('PHONE_AI','MANUAL')),
   call_transcript  text,
   ai_summary       text,
+  preferred_dates  date[] not null default '{}',   -- 거주자가 문자 링크에서 고른 방문 희망일 (최대 3개)
   history          jsonb not null default '[]'::jsonb,
   updated_at       timestamptz not null default now()
 );
+
+-- 이전 스키마로 만든 DB에 희망일 컬럼 추가
+alter table complaints add column if not exists preferred_dates date[] not null default '{}';
 
 create index if not exists complaints_status_idx      on complaints (status);
 create index if not exists complaints_received_at_idx on complaints (received_at desc);

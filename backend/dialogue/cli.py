@@ -51,7 +51,7 @@ def run_interactive_cli():
         print(f"\n[AI 상담원] {reply}")
 
         # 통화가 끝난 경우 세션 요약 출력
-        if orc.state in [DialogueState.TICKET_ISSUED, DialogueState.CLOSED]:
+        if orc.state in [DialogueState.SCHEDULE_SENT, DialogueState.TICKET_ISSUED, DialogueState.CLOSED]:
             print("\n" + "-" * 50)
             print("  📋 [통화 세션 종료 데이터]")
             summary = orc.get_summary()["session"]
@@ -62,8 +62,10 @@ def run_interactive_cli():
             print(f"  - 경위/부주의: {summary.get('cause_detail')}")
             print(f"  - 비용 판정: {summary.get('liability_party')}")
             print(f"  - 판정 근거: {summary.get('liability_reason')}")
+            if summary.get('schedule_link'):
+                print(f"  - 희망일 선택 링크: {summary.get('schedule_link')}")
             if summary.get('ticket_id'):
-                print(f"  - 발행 티켓: {summary.get('ticket_id')}")
+                print(f"  - 임시 접수번호: {summary.get('ticket_id')}")
             print("-" * 50)
             break
 

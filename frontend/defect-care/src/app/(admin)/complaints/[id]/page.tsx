@@ -151,6 +151,21 @@ function DetailView() {
               <Field label="상세 민원 내용" wide>
                 <p className="whitespace-pre-wrap leading-relaxed">{c.description}</p>
               </Field>
+              {!!c.preferredDates?.length && (
+                <Field label="거주자 방문 희망일 (문자 링크에서 선택)" wide>
+                  <ul className="mt-1 flex flex-wrap gap-2">
+                    {c.preferredDates.map((d) => {
+                      const [, m, day] = d.split("-").map(Number);
+                      const w = "일월화수목금토"[new Date(`${d}T00:00:00Z`).getUTCDay()];
+                      return (
+                        <li key={d} className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-800">
+                          {m}월 {day}일 ({w})
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </Field>
+              )}
               <Field label={`사진 첨부 (${c.photos.length})`} wide>
                 {c.photos.length === 0 ? (
                   <span className="text-slate-400">첨부된 사진이 없습니다.</span>

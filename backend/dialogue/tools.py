@@ -3,8 +3,9 @@
 - lookup_household : 세대 DB 조회 (아직 목업)
 - search_facility  : 수선유지 RAG 검색 — 거주자 말 → 기준표 항목 후보 (backend.rag)
 - decide_cost      : 비용 부담 판정 — 항목·경위·입주일 → 부담 주체와 근거 (backend.rag, 규칙 코드)
-- create_ticket    : 접수 등록 — 관리자 웹(frontend/defect-care)의 POST /api/complaints 로 보냄.
-                     웹이 꺼져 있으면 로컬 임시 번호를 발급하고 그 사실을 남긴다.
+- request_schedule : 방문 접수 요청 — 관리자 웹(frontend/defect-care) POST /api/intakes 로 접수 대기를 만들고
+                     거주자에게 방문 희망일 선택 링크를 문자로 보냄. 날짜를 고르면 민원 접수.
+                     웹이 꺼져 있으면 임시 접수번호를 발급하고 그 사실을 남긴다.
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from backend import rag
+from backend.rag.liability import speak_name
 
 # 관리자 웹 주소. 비우면 웹에 등록하지 않는다.
 WEB_URL = os.getenv("HOMECAREON_WEB_URL", "http://127.0.0.1:3000")
@@ -91,6 +93,11 @@ def decide_cost(item_id: str, cause_detail: str = "", symptom: str = "",
     }
 
 
+def inspection_note(item_id: Optional[str], move_in_date: Optional[str] = None) -> str:
+    """[B 파트] '원인을 어떻게 아나요?'에 대한 답: 방문 점검·SH 직원 검토 후 결정 + 점검 결과별 부담 (기준표 칸 그대로)."""
+    return rag.inspection_note(item_id, move_in_date)
+
+
 # ── 접수 등록 ──────────────────────────────────
 
 URGENT = re.compile(r"가스|누전|불꽃|타는\s?냄새|연기|물이?\s?(쏟|넘쳐|많이)|갇혔|갇힘")
@@ -100,14 +107,13 @@ def _digits(s: Optional[str]) -> str:
     return re.sub(r"\D", "", s or "")
 
 
-def create_ticket(session_dict: Dict[str, Any]) -> Dict[str, Any]:
-    """[C 파트] 접수 등록. 관리자 웹에 민원으로 올리고 접수번호·배정 업체를 돌려준다."""
-    s = session_dict
+def _complaint_payload(s: Dict[str, Any]) -> Dict[str, Any]:
+    """관리자 웹의 민원 입력 형식(ComplaintInput)으로 변환."""
     transcript = "\n".join(
         f"{'상담원(AI)' if h['speaker'] == 'Assistant' else '민원인'}: {h['text']}" for h in s.get("history", [])
     )
     text_all = " ".join(filter(None, [s.get("symptom"), s.get("cause_detail")]))
-    payload = {
+    return {
         "complainantName": s.get("resident_name") or "",
         "phone": s.get("phone") or "",
         "apartmentName": s.get("apartment_name") or "",
@@ -128,34 +134,44 @@ def create_ticket(session_dict: Dict[str, Any]) -> Dict[str, Any]:
         ),
     }
 
+
+def request_schedule(session_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """[C 파트] 방문 접수 요청.
+
+    관리자 웹에 접수 대기를 만들고, 거주자에게 방문 희망일 선택 링크를 문자로 보낸다.
+    거주자가 링크에서 날짜를 1~3개 고르면 그때 민원으로 접수되고 업체가 자동 배정된다.
+    웹에 연결하지 못하면 임시 접수번호를 발급하고 실패 사유를 남긴다.
+    """
+    s = session_dict
+    # 문자에 쓸 짧은 시설물 이름 (예: "화장실 배수트랩,배수관", "개별보일러")
+    item = rag.get_item(s["facility_item_id"]) if s.get("facility_item_id") else None
+    facility = speak_name(item) if item else (s.get("device_category") or "시설물")
+    body = {"complaint": _complaint_payload(s), "facility": facility}
+
     if WEB_URL:
         req = urllib.request.Request(
-            f"{WEB_URL.rstrip('/')}/api/complaints",
-            data=json.dumps(payload).encode("utf-8"),
+            f"{WEB_URL.rstrip('/')}/api/intakes",
+            data=json.dumps(body).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
         try:
             with urllib.request.urlopen(req, timeout=8) as res:
-                body = json.loads(res.read().decode("utf-8"))
-            c = body.get("complaint", {})
-            a = body.get("assignment") or {}
-            return {
-                "success": True,
-                "ticket_id": c.get("receiptNo") or c.get("id"),
-                "complaint_id": c.get("id"),
-                "status": c.get("status"),
-                "contractor_name": (a.get("contractor") or {}).get("name"),
-                "assignment_note": a.get("reason"),
-                "registered_to_web": True,
-            }
+                r = json.loads(res.read().decode("utf-8"))
+            return {"sent": True, "token": r["token"], "link": r["link"], "sms_text": r["smsText"], "sms_to": r["to"]}
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")
-            error = f"관리자 웹 등록 실패 ({e.code}): {detail[:200]}"
+            error = f"관리자 웹 접수 대기 생성 실패 ({e.code}): {detail[:200]}"
         except Exception as e:  # 웹이 꺼져 있는 경우 등
             error = f"관리자 웹 연결 실패: {e}"
     else:
         error = "관리자 웹 주소(HOMECAREON_WEB_URL)가 비어 있음"
 
     ticket_id = f"TKT-{datetime.now():%Y%m%d%H%M}-{uuid.uuid4().hex[:4].upper()}"
-    return {"success": True, "ticket_id": ticket_id, "registered_to_web": False, "error": error, "payload": payload}
+    return {"sent": False, "ticket_id": ticket_id, "error": error, "payload": body}
+
+
+def mask_phone(phone: Optional[str]) -> str:
+    """010-5678-1234 → 010-****-1234 (통화 중 번호를 다 읽지 않기 위함)"""
+    d = _digits(phone)
+    return f"{d[:3]}-****-{d[-4:]}" if len(d) >= 10 else "등록된 번호"
