@@ -175,6 +175,11 @@ class DialogueOrchestrator:
                 self.session.apartment_name = household.get("apartment_name")
                 self.session.move_in_date = household.get("move_in_date")
 
+        # 발화문 속에 등록된 계약자 성함이 직접 언급되었으면 최우선 일치 인정
+        if self.session.db_resident_name and self.session.db_resident_name in user_text:
+            self.session.resident_name = self.session.db_resident_name
+            name = self.session.db_resident_name
+
         # 성함이 아직 없는 경우 ➔ 성함 질문
         if not self.session.resident_name:
             if self.session.building and self.session.unit:

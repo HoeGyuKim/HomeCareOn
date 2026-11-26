@@ -3,3 +3,8 @@ uvicorn>=0.30
 pydantic>=2.7
 pytest>=8.0
 httpx>=0.27
+python-multipart>=0.0.9
+edge-tts>=7.0.0
+faster-whisper>=1.0.0
+# faster-whisper 1.2.x 가 av.open(metadata_errors=...)를 쓰는데 PyAV 19 에서 이 옵션이 빠져 STT가 실패함 (26.11.26 확인)
+av<19
