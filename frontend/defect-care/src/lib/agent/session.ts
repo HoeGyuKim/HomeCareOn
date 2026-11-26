@@ -19,7 +19,6 @@ import {
   type CallView,
   type IntakeForm,
   type PolicyDecision,
-  type SentSms,
   type SubmittedInfo,
 } from "./types";
 
@@ -30,7 +29,6 @@ export interface CallSession {
   dialogueSessionId?: string;
   dialogueAwaiting?: Awaiting;
   dialogueLlm?: "gemini" | "rules";
-  sms?: SentSms | null;
   createdAt: number;
   messages: CallMessage[];
   form: IntakeForm;
@@ -93,7 +91,6 @@ export function toView(s: CallSession): CallView {
     form: s.form,
     decision: s.decision,
     submitted: s.submitted,
-    sms: s.sms ?? null,
     awaiting: awaitingOf(s),
     notice: s.notice,
   };

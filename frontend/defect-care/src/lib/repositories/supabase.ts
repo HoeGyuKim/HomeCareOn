@@ -28,7 +28,7 @@ const toComplaint = (r: Row): Complaint => ({
   channel: r.channel as Complaint["channel"],
   callTranscript: (r.call_transcript as string) ?? null,
   aiSummary: (r.ai_summary as string) ?? null,
-  preferredDates: (r.preferred_dates as string[]) ?? [],
+  scheduleOffer: (r.schedule_offer as Complaint["scheduleOffer"]) ?? null,
   history: (r.history as Complaint["history"]) ?? [],
   updatedAt: r.updated_at as string,
 });
@@ -51,7 +51,7 @@ const fromComplaint = (c: Partial<Complaint>): Row => {
     channel: "channel",
     callTranscript: "call_transcript",
     aiSummary: "ai_summary",
-    preferredDates: "preferred_dates",
+    scheduleOffer: "schedule_offer",
     history: "history",
     updatedAt: "updated_at",
   };

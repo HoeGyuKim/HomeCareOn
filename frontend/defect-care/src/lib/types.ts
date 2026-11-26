@@ -73,10 +73,38 @@ export interface Complaint {
   channel: ComplaintChannel;
   callTranscript?: string | null;
   aiSummary?: string | null;
-  /** 거주자가 문자 링크에서 고른 방문 희망일 (YYYY-MM-DD, 최대 3개) */
-  preferredDates?: string[];
+  /** 관리자가 업체와 조율해 거주자에게 문자로 보낸 방문 가능 일정과 거주자 응답 */
+  scheduleOffer?: ScheduleOffer | null;
   history: ComplaintHistory[];
   updatedAt: string;
+}
+
+/** 방문 시간대 */
+export type VisitPeriod = "AM" | "PM" | "ALLDAY";
+
+/** 방문 가능 일정 1건 (날짜는 YYYY-MM-DD, 한국 날짜) */
+export interface VisitSlot {
+  date: string;
+  period: VisitPeriod;
+}
+
+/**
+ * 방문 일정 제안
+ * 관리자가 배정 업체와 조율한 가능 일정을 문자 링크(/s/{token})로 보내고, 거주자가 하나를 고르면 확정.
+ * - SENT     : 거주자 선택 대기
+ * - CHOSEN   : 거주자가 골라 방문 일정 확정 (민원 상태 '작업 예정')
+ * - DECLINED : 거주자가 '가능한 날짜 없음' → 관리자 재조율 필요
+ */
+export interface ScheduleOffer {
+  token: string;
+  slots: VisitSlot[];
+  status: "SENT" | "CHOSEN" | "DECLINED";
+  chosen: VisitSlot | null;
+  sentAt: string;
+  respondedAt: string | null;
+  expiresAt: string;
+  link: string;
+  smsText: string;
 }
 
 /** 민원 생성 입력값 */
@@ -94,7 +122,6 @@ export interface ComplaintInput {
   channel?: ComplaintChannel;
   callTranscript?: string | null;
   aiSummary?: string | null;
-  preferredDates?: string[];
 }
 
 export interface ComplaintFilter {

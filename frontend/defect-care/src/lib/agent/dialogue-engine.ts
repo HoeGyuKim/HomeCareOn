@@ -34,10 +34,10 @@ export interface DialogueView {
     liability_party: string | null;
     liability_reason: string | null;
     liability_explanation: string | null;
-    schedule_link: string | null;
-    sms_text: string | null;
-    sms_to: string | null;
     ticket_id: string | null;
+    complaint_id: string | null;
+    contractor_name: string | null;
+    ticket_registered: boolean;
     ticket_error: string | null;
   };
 }
@@ -88,12 +88,14 @@ export function applyDialogueView(s: CallSession, v: DialogueView) {
         explanation: p.liability_explanation ?? "",
       }
     : null;
-  // 접수 동의 → 희망일 선택 링크 문자 발송 (민원 접수는 거주자가 날짜를 고를 때 됨)
-  if (p.schedule_link && p.sms_text && p.sms_to) {
-    s.sms = { to: p.sms_to, text: p.sms_text, link: p.schedule_link };
-  } else if (p.ticket_id && !s.sms) {
-    // 웹 연결 실패로 대화 엔진이 임시 번호만 발급한 경우
-    s.notice = `희망일 선택 문자를 보내지 못했습니다 (임시 접수번호 ${p.ticket_id}): ${p.ticket_error ?? "원인 미상"}`;
+  // 접수 동의 → 대화 엔진이 이 웹에 민원을 바로 등록 (방문 일정은 관리자가 업체와 조율 후 문자 발송)
+  if (p.ticket_id && !s.submitted) {
+    if (p.ticket_registered && p.complaint_id) {
+      s.submitted = { complaintId: p.complaint_id, receiptNo: p.ticket_id, status: "RECEIVED", contractorName: p.contractor_name };
+    } else {
+      // 웹 연결 실패로 대화 엔진이 임시 번호만 발급한 경우
+      s.notice = `민원이 관리자 웹에 등록되지 않았습니다 (임시 접수번호 ${p.ticket_id}): ${p.ticket_error ?? "원인 미상"}`;
+    }
   }
   if (v.awaiting === "done") s.step = "done";
 }

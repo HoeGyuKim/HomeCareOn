@@ -38,7 +38,6 @@ AWAITING = {
     DialogueState.ASK_FACILITY: "issue",
     DialogueState.PROBE_CAUSE: "cause",
     DialogueState.ADVISE_COST: "confirm",
-    DialogueState.SCHEDULE_SENT: "done",
     DialogueState.TICKET_ISSUED: "done",
     DialogueState.CLOSED: "done",
 }

@@ -99,14 +99,7 @@ export interface CallView {
   form: IntakeForm;
   decision: PolicyDecision | null;
   submitted: SubmittedInfo | null;
-  /** 대화 엔진이 보낸 희망일 선택 문자 (모의 발송) */
-  sms?: SentSms | null;
   awaiting: Awaiting;
   notice?: string;
 }
 
-export interface SentSms {
-  to: string;
-  text: string;
-  link: string;
-}

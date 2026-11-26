@@ -85,19 +85,9 @@ export async function createComplaint(rawInput: ComplaintInput, opts: { autoAssi
     channel: input.channel ?? "MANUAL",
     callTranscript: input.callTranscript ?? null,
     aiSummary: input.aiSummary ?? null,
-    preferredDates: input.preferredDates ?? [],
+    scheduleOffer: null,
     history: [
-      {
-        at: ts,
-        status: "RECEIVED",
-        note:
-          actor === "AI"
-            ? input.preferredDates?.length
-              ? `AI 전화 접수 · 거주자 희망일 선택 (${input.preferredDates.join(", ")})`
-              : "AI 전화 접수"
-            : "관리자 직접 접수",
-        actor,
-      },
+      { at: ts, status: "RECEIVED", note: actor === "AI" ? "AI 전화 접수" : "관리자 직접 접수", actor },
     ],
     updatedAt: ts,
   });

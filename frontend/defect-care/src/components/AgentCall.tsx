@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, Bot, CheckCircle2, Circle, Loader2, MessageSquareText, Scale, SendHorizonal, ShieldAlert, User } from "lucide-react";
+import { Ban, Bot, CheckCircle2, Circle, Loader2, Scale, SendHorizonal, ShieldAlert, User } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -268,22 +268,11 @@ export default function AgentCall() {
               </div>
             ))}
           </dl>
-          {view?.sms && (
-            <div className="m-4 mt-1 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">
-              <p className="flex items-center gap-1.5 font-semibold">
-                <MessageSquareText className="size-4" /> 희망일 선택 문자 발송 (모의) · {view.sms.to}
-              </p>
-              <p className="rounded-md bg-white/70 p-2 text-xs leading-relaxed whitespace-pre-wrap text-slate-700">{view.sms.text}</p>
-              <a href={view.sms.link} target="_blank" rel="noreferrer" className="inline-block text-xs font-medium text-blue-700 hover:underline">
-                거주자 화면으로 링크 열기 →
-              </a>
-              <p className="text-[11px] text-slate-500">거주자가 날짜를 고르면 민원 접수 관리에 등록되고 업체가 자동 배정됩니다.</p>
-            </div>
-          )}
           {view?.submitted && (
             <div className="m-4 mt-1 space-y-1 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
               <p className="font-semibold">접수 완료 · {view.submitted.receiptNo}</p>
               <p className="text-xs">{view.submitted.contractorName ? `배정 업체: ${view.submitted.contractorName}` : "관리자 확인 대기 (업체 배정 예정)"}</p>
+              {dialogue && <p className="text-xs">관리자가 민원 상세에서 업체와 방문 일정을 조율한 뒤 거주자에게 일정 선택 문자를 보냅니다.</p>}
               {view.submitted.complaintId ? (
                 <Link href={`/complaints/${view.submitted.complaintId}`} className="inline-block text-xs font-medium text-blue-700 hover:underline">
                   민원 상세 보기 →

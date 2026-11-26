@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowLeft, Bot, Check, CheckCircle2, Loader2, Mail, Phon
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
+import ScheduleOfferCard from "@/components/ScheduleOfferCard";
 import { ErrorBox, SectionTitle, Spinner, StatusBadge, UrgencyBadge } from "@/components/ui";
 import { api } from "@/lib/client-api";
 import { DEFECT_LABEL, STATUS_FLOW, STATUS_LABEL, STATUSES } from "@/lib/constants";
@@ -151,21 +152,6 @@ function DetailView() {
               <Field label="상세 민원 내용" wide>
                 <p className="whitespace-pre-wrap leading-relaxed">{c.description}</p>
               </Field>
-              {!!c.preferredDates?.length && (
-                <Field label="거주자 방문 희망일 (문자 링크에서 선택)" wide>
-                  <ul className="mt-1 flex flex-wrap gap-2">
-                    {c.preferredDates.map((d) => {
-                      const [, m, day] = d.split("-").map(Number);
-                      const w = "일월화수목금토"[new Date(`${d}T00:00:00Z`).getUTCDay()];
-                      return (
-                        <li key={d} className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-800">
-                          {m}월 {day}일 ({w})
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </Field>
-              )}
               <Field label={`사진 첨부 (${c.photos.length})`} wide>
                 {c.photos.length === 0 ? (
                   <span className="text-slate-400">첨부된 사진이 없습니다.</span>
@@ -284,6 +270,9 @@ function DetailView() {
               )}
             </div>
           </section>
+
+          {/* 방문 일정 조율: 업체와 조율한 일정 → 거주자 선택 문자 */}
+          <ScheduleOfferCard complaint={c} contractor={contractor} onUpdated={(x) => setD(x as Detail)} />
 
           {/* 상태 변경 */}
           <section className="card">

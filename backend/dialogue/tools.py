@@ -3,9 +3,8 @@
 - lookup_household : 세대 DB 조회 (아직 목업)
 - search_facility  : 수선유지 RAG 검색 — 거주자 말 → 기준표 항목 후보 (backend.rag)
 - decide_cost      : 비용 부담 판정 — 항목·경위·입주일 → 부담 주체와 근거 (backend.rag, 규칙 코드)
-- request_schedule : 방문 접수 요청 — 관리자 웹(frontend/defect-care) POST /api/intakes 로 접수 대기를 만들고
-                     거주자에게 방문 희망일 선택 링크를 문자로 보냄. 날짜를 고르면 민원 접수.
-                     웹이 꺼져 있으면 임시 접수번호를 발급하고 그 사실을 남긴다.
+- create_ticket    : 접수 등록 — 관리자 웹(frontend/defect-care) POST /api/complaints 로 민원 등록 + 업체 자동 배정.
+                     방문 일정은 관리자가 업체와 조율해 거주자에게 문자로 보냄. 웹이 꺼져 있으면 임시 접수번호 발급.
 """
 from __future__ import annotations
 
@@ -19,7 +18,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from backend import rag
-from backend.rag.liability import speak_name
 
 # 관리자 웹 주소. 비우면 웹에 등록하지 않는다.
 WEB_URL = os.getenv("HOMECAREON_WEB_URL", "http://127.0.0.1:3000")
@@ -135,40 +133,41 @@ def _complaint_payload(s: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def request_schedule(session_dict: Dict[str, Any]) -> Dict[str, Any]:
-    """[C 파트] 방문 접수 요청.
+def create_ticket(session_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """[C 파트] 접수 등록. 관리자 웹(POST /api/complaints)에 민원으로 올리고 접수번호·자동 배정 업체를 돌려준다.
 
-    관리자 웹에 접수 대기를 만들고, 거주자에게 방문 희망일 선택 링크를 문자로 보낸다.
-    거주자가 링크에서 날짜를 1~3개 고르면 그때 민원으로 접수되고 업체가 자동 배정된다.
+    방문 일정은 여기서 정하지 않는다. 관리자가 민원 상세에서 배정 업체와 조율한 뒤 거주자에게 일정 선택 문자를 보낸다.
     웹에 연결하지 못하면 임시 접수번호를 발급하고 실패 사유를 남긴다.
     """
-    s = session_dict
-    # 문자에 쓸 짧은 시설물 이름 (예: "화장실 배수트랩,배수관", "개별보일러")
-    item = rag.get_item(s["facility_item_id"]) if s.get("facility_item_id") else None
-    facility = speak_name(item) if item else (s.get("device_category") or "시설물")
-    body = {"complaint": _complaint_payload(s), "facility": facility}
-
+    payload = _complaint_payload(session_dict)
     if WEB_URL:
         req = urllib.request.Request(
-            f"{WEB_URL.rstrip('/')}/api/intakes",
-            data=json.dumps(body).encode("utf-8"),
+            f"{WEB_URL.rstrip('/')}/api/complaints",
+            data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
         try:
             with urllib.request.urlopen(req, timeout=8) as res:
-                r = json.loads(res.read().decode("utf-8"))
-            return {"sent": True, "token": r["token"], "link": r["link"], "sms_text": r["smsText"], "sms_to": r["to"]}
+                body = json.loads(res.read().decode("utf-8"))
+            c = body.get("complaint", {})
+            a = body.get("assignment") or {}
+            return {
+                "registered": True,
+                "ticket_id": c.get("receiptNo") or c.get("id"),
+                "complaint_id": c.get("id"),
+                "contractor_name": (a.get("contractor") or {}).get("name"),
+            }
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")
-            error = f"관리자 웹 접수 대기 생성 실패 ({e.code}): {detail[:200]}"
+            error = f"관리자 웹 등록 실패 ({e.code}): {detail[:200]}"
         except Exception as e:  # 웹이 꺼져 있는 경우 등
             error = f"관리자 웹 연결 실패: {e}"
     else:
         error = "관리자 웹 주소(HOMECAREON_WEB_URL)가 비어 있음"
 
     ticket_id = f"TKT-{datetime.now():%Y%m%d%H%M}-{uuid.uuid4().hex[:4].upper()}"
-    return {"sent": False, "ticket_id": ticket_id, "error": error, "payload": body}
+    return {"registered": False, "ticket_id": ticket_id, "error": error, "payload": payload}
 
 
 def mask_phone(phone: Optional[str]) -> str:

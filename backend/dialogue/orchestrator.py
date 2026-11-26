@@ -13,7 +13,7 @@ import re
 
 from .state import DialogueState, SessionData
 from .korean_number import extract_dong_ho, extract_error_code, extract_name
-from .tools import lookup_household, search_facility, decide_cost, request_schedule, mask_phone, inspection_note
+from .tools import lookup_household, search_facility, decide_cost, create_ticket, mask_phone, inspection_note
 from .llm_client import GeminiClient
 
 
@@ -36,9 +36,10 @@ class DialogueOrchestrator:
         user_text = user_text.strip()
         self._record_history("User", user_text)
 
-        if self.state == DialogueState.SCHEDULE_SENT:
-            return "보내드린 문자 속 링크에서 방문 희망 날짜를 골라 주시면 접수가 완료됩니다. 다른 문의가 있으시면 새로 전화해 주세요."
-        if self.state in [DialogueState.TICKET_ISSUED, DialogueState.CLOSED]:
+        if self.state == DialogueState.TICKET_ISSUED:
+            return ("접수는 완료되었습니다. 담당 직원이 업체와 방문 일정을 조율한 뒤 가능한 날짜를 문자로 보내드릴게요. "
+                    "다른 문의가 있으시면 새로 전화해 주세요.")
+        if self.state == DialogueState.CLOSED:
             return "이미 처리가 끝난 통화입니다. 추가 문의가 있으시면 새로 전화해 주세요."
 
         # 1. LLM 자연어 파싱 (엔티티 및 의도 추출) — 규칙으로 충분하면 건너뛰어 응답을 빠르게 한다
@@ -127,8 +128,8 @@ class DialogueOrchestrator:
                         if self.session.liability_verdict == "SH_REPAIR" else "")
                      + note)
         elif kind == "schedule":
-            facts = ("접수하시면 문자로 링크를 보내드리고, 그 링크에서 방문을 원하시는 날짜를 최대 3개까지 고르실 수 있습니다. "
-                     "담당 직원이 그중 하루로 방문 일정을 확정해 다시 안내해 드립니다.")
+            facts = ("방문 날짜는 접수 후 담당 직원이 업체와 조율해서 정합니다. 조율된 가능한 날짜를 문자로 보내드리면, "
+                     "문자 속 링크에서 편하신 날짜를 골라 주시면 방문 일정이 확정됩니다.")
         elif kind == "how":
             facts = note
         else:
@@ -325,31 +326,31 @@ class DialogueOrchestrator:
         is_affirmative = intent == "affirmative"
 
         if is_affirmative:
-            # [도구 API 호출] 방문 접수 요청: 관리자 웹에 접수 대기 생성 + 희망일 선택 링크 문자 발송
-            res = request_schedule(self.session.model_dump())
+            # [도구 API 호출] 접수 등록: 관리자 웹에 민원 등록 + 업체 자동 배정.
+            # 방문 일정은 관리자가 민원 상세에서 업체와 조율한 뒤 거주자에게 일정 선택 문자를 보낸다.
+            res = create_ticket(self.session.model_dump())
+            self.session.ticket_id = res["ticket_id"]
+            self.session.complaint_id = res.get("complaint_id")
+            self.session.contractor_name = res.get("contractor_name")
+            self.session.ticket_registered = bool(res.get("registered"))
+            self.session.ticket_error = res.get("error")
             self.session.call_summary = (
                 f"{self.session.building} {self.session.unit} ({self.session.resident_name}) "
                 f"{self.session.facility_name or self.session.device_category} — {self.session.symptom}"
             )
-            # 마무리 멘트는 링크·접수 조건이 정확해야 하므로 LLM에 맡기지 않고 고정 문장으로 말한다
-            if res["sent"]:
-                self.session.intake_token = res["token"]
-                self.session.schedule_link = res["link"]
-                self.session.sms_text = res["sms_text"]
-                self.session.sms_to = res["sms_to"]
-                self.state = DialogueState.SCHEDULE_SENT
+            self.state = DialogueState.TICKET_ISSUED
+            # 마무리 멘트는 접수번호·이후 절차가 정확해야 하므로 LLM에 맡기지 않고 고정 문장으로 말한다
+            if self.session.ticket_registered:
                 reply = (
-                    f"네, 방문 점검 접수를 위해 {mask_phone(self.session.phone)} 번호로 문자를 보내드렸습니다. "
-                    "문자 속 링크에서 방문을 원하시는 날짜를 최대 3개까지 골라 주시면 접수가 완료됩니다. "
-                    "담당 직원이 그중 하루로 방문 일정을 확정해 다시 문자로 안내해 드릴게요. 이용해 주셔서 감사합니다."
+                    f"네, 방문 점검 접수가 완료되었습니다. 접수번호는 {self.session.ticket_id}입니다. "
+                    f"담당 직원이 업체와 방문 일정을 조율한 뒤, 가능한 날짜를 {mask_phone(self.session.phone)} 번호로 문자 보내드릴게요. "
+                    "문자 속 링크에서 편하신 날짜를 골라 주시면 방문 일정이 확정됩니다. 이용해 주셔서 감사합니다."
                 )
             else:
-                self.session.ticket_id = res["ticket_id"]
-                self.session.ticket_error = res["error"]
-                self.state = DialogueState.TICKET_ISSUED
                 reply = (
-                    f"죄송합니다. 지금 문자 발송에 문제가 있어 임시 접수번호 {self.session.ticket_id}로 접수해 두었습니다. "
-                    "담당 직원이 확인한 뒤 직접 연락드려 방문 날짜를 정하겠습니다. 이용해 주셔서 감사합니다."
+                    f"접수 내용을 임시 접수번호 {self.session.ticket_id}로 받아 두었습니다. "
+                    "지금 접수 시스템 연결이 원활하지 않아, 담당 직원이 확인한 뒤 직접 연락드려 방문 일정을 안내해 드리겠습니다. "
+                    "이용해 주셔서 감사합니다."
                 )
             self._record_history("Assistant", reply)
             return reply

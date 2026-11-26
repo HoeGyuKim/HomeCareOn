@@ -75,16 +75,15 @@ def test_recent_move_in_malfunction_is_sh():
     assert orc.session.liability_verdict == "SH_REPAIR"
 
 
-def test_consent_sends_schedule_link_and_ends(monkeypatch):
-    """접수 동의 → 관리자 웹에 접수 대기 생성 + 희망일 링크 문자 → 고정 문장으로 통화 종료."""
+def test_consent_registers_complaint_and_ends(monkeypatch):
+    """접수 동의 → 관리자 웹에 민원 바로 등록 → '직원이 업체와 일정 조율 후 문자 안내'로 통화 종료 (문자는 아직 안 보냄)."""
     sent = {}
 
-    def fake_request(session):
+    def fake_create(session):
         sent["payload"] = session
-        return {"sent": True, "token": "tok123", "link": "http://web/s/tok123",
-                "sms_text": "[SH 시설물 접수] ...", "sms_to": session["phone"]}
+        return {"registered": True, "ticket_id": "MW-20261126-0001", "complaint_id": "c1", "contractor_name": "바른배관설비"}
 
-    monkeypatch.setattr("backend.dialogue.orchestrator.request_schedule", fake_request)
+    monkeypatch.setattr("backend.dialogue.orchestrator.create_ticket", fake_create)
     orc, replies = talk(
         "103동 1204호 홍길동입니다",
         "세면대 밑 배관에서 물이 새요",
@@ -92,11 +91,12 @@ def test_consent_sends_schedule_link_and_ends(monkeypatch):
         "네 진행해 주세요",
     )
     s = orc.session
-    assert orc.state == DialogueState.SCHEDULE_SENT
-    assert s.schedule_link == "http://web/s/tok123" and s.sms_to == "010-5678-1234"
-    assert "010-****-1234" in replies[4] and "최대 3개" in replies[4] and "접수가 완료" in replies[4]
-    assert not replies[4].rstrip().endswith("?")          # 통화를 끝내는 문장 (다시 묻지 않음)
-    assert "보내드린 문자" in orc.handle_utterance("네?")   # 종료 후 말을 걸어도 링크 안내만
+    assert orc.state == DialogueState.TICKET_ISSUED and s.ticket_registered
+    assert s.ticket_id == "MW-20261126-0001" and s.complaint_id == "c1" and s.contractor_name == "바른배관설비"
+    r = replies[4]
+    assert "MW-20261126-0001" in r and "업체와 방문 일정을 조율" in r and "010-****-1234" in r
+    assert not r.rstrip().endswith("?")                       # 통화를 끝내는 문장 (다시 묻지 않음)
+    assert "업체와 방문 일정을 조율" in orc.handle_utterance("네?")   # 종료 후 말을 걸어도 같은 안내
 
 
 # ── Gemini 호출 줄이기: 규칙으로 충분하면 LLM 정보 추출·후보 선택을 건너뛴다 ──
@@ -183,14 +183,14 @@ def test_rule_intent(text, intent):
 
 
 def test_advise_cost_skips_extraction_when_answer_is_clear(monkeypatch):
-    monkeypatch.setattr("backend.dialogue.orchestrator.request_schedule",
-                        lambda s: {"sent": True, "token": "t", "link": "l", "sms_text": "x", "sms_to": s["phone"]})
+    monkeypatch.setattr("backend.dialogue.orchestrator.create_ticket",
+                        lambda s: {"registered": True, "ticket_id": "MW-1", "complaint_id": "c1", "contractor_name": None})
     orc = llm_orc()
     for t in ["103동 1204호 홍길동입니다", "렌지후드가 안 돌아가요", "갑자기 멈췄어요"]:
         orc.handle_utterance(t)
     before = orc.llm.calls["extract"]
     orc.handle_utterance("네 진행해 주세요")
-    assert orc.llm.calls["extract"] == before and orc.state == DialogueState.SCHEDULE_SENT
+    assert orc.llm.calls["extract"] == before and orc.state == DialogueState.TICKET_ISSUED
 
 
 def test_advise_cost_uses_llm_when_answer_is_unclear():
@@ -216,7 +216,7 @@ def to_advise(*lines):
 
 def test_how_question_explains_inspection_and_asks_again(monkeypatch):
     called = []
-    monkeypatch.setattr("backend.dialogue.orchestrator.request_schedule", lambda s: called.append(s))
+    monkeypatch.setattr("backend.dialogue.orchestrator.create_ticket", lambda s: called.append(s))
     orc = to_advise("변기가 깨졌어요", "몰라 그냥 오늘 앉았는데 부셔졌어 몸무게는 120키로야")
     reply = orc.handle_utterance("파손인지 자연적 실크랙인지 어떻게 알아")
     assert "기사님이 방문해" in reply and "SH 담당 직원이 점검 결과를 검토" in reply
@@ -233,10 +233,10 @@ def test_cost_question_when_sh_pays():
 
 def test_schedule_question_even_with_yes_word(monkeypatch):
     called = []
-    monkeypatch.setattr("backend.dialogue.orchestrator.request_schedule", lambda s: called.append(s))
+    monkeypatch.setattr("backend.dialogue.orchestrator.create_ticket", lambda s: called.append(s))
     orc = to_advise("보일러에서 온수가 안 나와요", "오래돼서 그런 것 같아요")
     reply = orc.handle_utterance("네 근데 언제 와요?")
-    assert "최대 3개" in reply and orc.state == DialogueState.ADVISE_COST and not called
+    assert "업체와 조율" in reply and orc.state == DialogueState.ADVISE_COST and not called
 
 
 def test_question_skips_llm_extraction():
