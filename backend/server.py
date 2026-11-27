@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import threading
 import time
 import uuid
 from typing import Any, Dict, Optional
@@ -22,7 +23,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from backend import rag
-from backend.dialogue.llm_client import llm_status, load_api_key
+from backend.dialogue.llm_client import _setting, llm_status, load_api_key
 from backend.dialogue.orchestrator import DialogueOrchestrator
 from backend.dialogue.state import DialogueState
 
@@ -154,15 +155,35 @@ async def get_tts(text: str, voice: str = "ko-KR-SunHiNeural"):
 
 
 _whisper_model = None
+_whisper_lock = threading.Lock()
+
+# 신경망 STT 모델 크기 (.env 또는 환경변수 WHISPER_MODEL). 26.11.26 같은 문장 비교(노트북 CPU):
+#   base  : 6초 분량 0.5초, '네 접수해 주세요'→'내 접수해 주세요', '배수관에서'→'배수가 내서' 등 오인식
+#   small : 6초 분량 1.5초, 위 문장 모두 정확 → 기본값
+WHISPER_MODEL = _setting("WHISPER_MODEL", "small")
+# 상담 분야 표기 예시. 없으면 '백삼동 천이백사호'를 '130,204호'로 적는 등 동·호수 인식이 흔들림
+WHISPER_PROMPT = "SH 시설물 민원 접수 상담. 103동 1204호 홍길동입니다. 보일러, 세면대, 변기, 누수, 접수해 주세요."
 
 
 def _get_whisper_model():
     global _whisper_model
-    if _whisper_model is None:
-        from faster_whisper import WhisperModel
-        # 'base' 모델: CPU에서도 가볍고 빠르게 한국어를 인식 (비용 0원)
-        _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+    with _whisper_lock:
+        if _whisper_model is None:
+            from faster_whisper import WhisperModel
+            _whisper_model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
     return _whisper_model
+
+
+@app.on_event("startup")
+def _preload_whisper():
+    """첫 음성 인식이 모델 로딩(첫 실행은 내려받기까지)으로 늦지 않게, 서버가 켜질 때 뒤에서 미리 불러 둔다."""
+    def load():
+        try:
+            _get_whisper_model()
+            print(f"[STT] faster-whisper '{WHISPER_MODEL}' 모델 준비 완료")
+        except Exception as e:  # 패키지 미설치 등: 음성 인식 요청 때 다시 시도
+            print(f"[STT] 모델 미리 불러오기 실패: {e}")
+    threading.Thread(target=load, daemon=True).start()
 
 
 @app.post("/api/stt")
@@ -181,7 +202,7 @@ async def post_stt(file: UploadFile = File(...)):
 
     try:
         model = _get_whisper_model()
-        segments, info = model.transcribe(tmp_path, language="ko", beam_size=5)
+        segments, info = model.transcribe(tmp_path, language="ko", beam_size=5, initial_prompt=WHISPER_PROMPT)
         text = " ".join([segment.text for segment in segments]).strip()
         return {
             "text": text,

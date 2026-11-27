@@ -79,26 +79,16 @@ function cleanTextForSpeech(text: string): string {
     .trim();
 }
 
-/** 브라우저 내장 한국어 음성 fallback */
-function getBestKoreanVoice(): SpeechSynthesisVoice | null {
-  if (typeof window === "undefined" || !window.speechSynthesis) return null;
-  const voices = window.speechSynthesis.getVoices();
-  const koVoices = voices.filter((v) => v.lang.startsWith("ko") || v.lang.includes("KR"));
-  if (koVoices.length === 0) return null;
-
-  const preferred = koVoices.find(
-    (v) =>
-      v.name.includes("Natural") ||
-      v.name.includes("Online") ||
-      v.name.includes("SunHi") ||
-      v.name.includes("Heami") ||
-      v.name.includes("Google"),
-  );
-  return preferred || koVoices[0];
-}
+// STT 녹음: 말한 뒤 이만큼 조용하면 끝난 것으로 보고 자동 전송 / 말이 없으면 취소 / 한 번에 최대 녹음 시간
+const SILENCE_MS = 1100;
+const NO_SPEECH_MS = 8000;
+const MAX_RECORD_MS = 20000;
 
 /**
  * AI 상담원과 음성(STT/TTS) 및 글로 주고받는 민원 접수 화면
+ * 음성은 신경망 엔진만 쓴다 (브라우저 내장 '일반' 음성 합성·인식은 쓰지 않음)
+ * - TTS: 대화 엔진 서버 /api/tts (edge-tts 한국어 신경망 보이스 ko-KR-SunHiNeural)
+ * - STT: 마이크 녹음 → 대화 엔진 서버 /api/stt (faster-whisper 신경망 음성 인식)
  */
 export default function AgentCall() {
   const [view, setView] = useState<CallView | null>(null);
@@ -109,8 +99,8 @@ export default function AgentCall() {
   // 음성 엔진(STT / TTS) 상태
   const [isListening, setIsListening] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
-  const [useNeuralVoice, setUseNeuralVoice] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false); // 녹음한 말을 신경망 STT로 글로 바꾸는 중
 
   // 실제 전화 통화 시연 모드 (Phone Call Mode)
   const [phoneMode, setPhoneMode] = useState(false);
@@ -118,7 +108,12 @@ export default function AgentCall() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const recognitionRef = useRef<any>(null);
+  // STT 녹음 상태 (MediaRecorder + 소리 크기로 말 끝 감지)
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const submitRef = useRef(true);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastSpokenIndexRef = useRef<number>(-1);
 
@@ -144,82 +139,37 @@ export default function AgentCall() {
     };
   }, [phoneMode, ended]);
 
-  /** 브라우저 내장 TTS fallback */
-  const fallbackSpeak = (cleaned: string) => {
-    if (typeof window === "undefined" || !window.speechSynthesis) {
-      setIsSpeaking(false);
-      return;
-    }
-    try {
-      const utterance = new SpeechSynthesisUtterance(cleaned);
-      utterance.lang = "ko-KR";
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-      const voice = getBestKoreanVoice();
-      if (voice) utterance.voice = voice;
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => {
-        setIsSpeaking(false);
-        if (phoneModeRef.current && !endedRef.current) {
-          setTimeout(() => startListening(), 400);
-        }
-      };
-      utterance.onerror = () => setIsSpeaking(false);
-      window.speechSynthesis.speak(utterance);
-    } catch {
-      setIsSpeaking(false);
-    }
-  };
-
-  /** TTS 음성 발화 함수: 초자연적 한국어 신경망 보이스 우선 재생 */
+  /** TTS: 한국어 신경망 보이스로만 낭독. 재생에 실패해도 브라우저 내장(일반) 음성으로 바꾸지 않고 안내만 한다 */
   const speak = (text: string) => {
     if (!ttsEnabled) return;
-    try {
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-        currentAudioRef.current = null;
-      }
-      if (typeof window !== "undefined" && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
-
-      const cleaned = cleanTextForSpeech(text);
-      if (!cleaned) return;
-
-      setIsSpeaking(true);
-
-      if (useNeuralVoice) {
-        // 자연스러운 한국어 신경망 보이스 (edge-tts ko-KR-SunHiNeural)
-        const audio = new Audio(`/api/tts?text=${encodeURIComponent(cleaned)}`);
-        currentAudioRef.current = audio;
-
-        audio.onended = () => {
-          setIsSpeaking(false);
-          currentAudioRef.current = null;
-          // 전화 통화 모드일 때 AI 발화 종료 즉시 거주자 마이크 자동 오픈 (진짜 전화 대화처럼)
-          if (phoneModeRef.current && !endedRef.current) {
-            setTimeout(() => {
-              startListening();
-            }, 300);
-          }
-        };
-
-        audio.onerror = (e) => {
-          console.warn("신경망 TTS 재생 실패, 브라우저 음성으로 대체합니다:", e);
-          fallbackSpeak(cleaned);
-        };
-
-        audio.play().catch((err) => {
-          console.warn("오디오 자동 재생이 브라우저 정책으로 차단됨, 대체 음성 시도:", err);
-          fallbackSpeak(cleaned);
-        });
-      } else {
-        fallbackSpeak(cleaned);
-      }
-    } catch (e) {
-      console.warn("TTS speak error:", e);
-      setIsSpeaking(false);
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
     }
+    const cleaned = cleanTextForSpeech(text);
+    if (!cleaned) return;
+
+    const afterSpeech = () => {
+      setIsSpeaking(false);
+      currentAudioRef.current = null;
+      // 전화 통화 모드: AI 안내가 끝나면 바로 거주자 마이크를 연다 (진짜 전화처럼)
+      if (phoneModeRef.current && !endedRef.current) setTimeout(() => void startListening(), 300);
+    };
+
+    const audio = new Audio(`/api/tts?text=${encodeURIComponent(cleaned)}`);
+    currentAudioRef.current = audio;
+    setIsSpeaking(true);
+    audio.onended = afterSpeech;
+    audio.onerror = () => {
+      setError("신경망 음성 안내를 불러오지 못했습니다. 화면의 글로 확인해 주세요.");
+      afterSpeech();
+    };
+    audio.play().catch(() => {
+      // 브라우저가 소리 자동 재생을 막은 경우 (화면을 아직 한 번도 누르지 않았을 때 등)
+      setIsSpeaking(false);
+      currentAudioRef.current = null;
+      setError("브라우저가 소리 자동 재생을 막았습니다. 화면을 한 번 누른 뒤 다시 시도해 주세요.");
+    });
   };
 
   /** AI 상담원의 새 답변이 오면 자동으로 TTS 낭독 */
@@ -232,7 +182,7 @@ export default function AgentCall() {
       lastSpokenIndexRef.current = lastIdx;
       speak(lastMsg.text);
     }
-  }, [view?.messages, ttsEnabled, useNeuralVoice]);
+  }, [view?.messages, ttsEnabled]);
 
   /** 새 대화 시작 */
   const connect = () =>
@@ -265,16 +215,8 @@ export default function AgentCall() {
       currentAudioRef.current.pause();
       currentAudioRef.current = null;
     }
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {}
-    }
+    stopRecording(false);
     setIsSpeaking(false);
-    setIsListening(false);
   };
 
   const restart = () => {
@@ -329,88 +271,140 @@ export default function AgentCall() {
     sendMessage(input);
   };
 
-  /** STT 마이크 시작 함수 */
-  const startListening = () => {
-    if (typeof window === "undefined") return;
+  /** 녹음에 쓴 마이크·소리 분석기 정리 */
+  const cleanupRecording = () => {
+    if (vadTimerRef.current) {
+      clearInterval(vadTimerRef.current);
+      vadTimerRef.current = null;
+    }
+    audioCtxRef.current?.close().catch(() => {});
+    audioCtxRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  };
 
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  /** 녹음 끝내기. submit=true 면 녹음한 말을 신경망 STT로 보내 인식 후 전송 */
+  const stopRecording = (submit: boolean) => {
+    submitRef.current = submit;
+    const rec = recorderRef.current;
+    if (rec && rec.state !== "inactive") rec.stop(); // 나머지는 rec.onstop 에서 처리
+    else cleanupRecording();
+    setIsListening(false);
+  };
 
-    if (!SpeechRecognition) {
-      alert("현재 브라우저에서는 음성 인식을 지원하지 않습니다. Chrome 또는 Edge 브라우저를 이용해 주세요.");
+  /** 녹음 파일 → 대화 엔진 /api/stt (faster-whisper) → 글 → 상담원에게 전송 */
+  const transcribe = async (blob: Blob) => {
+    setIsTranscribing(true);
+    try {
+      const ext = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : "webm";
+      const fd = new FormData();
+      fd.append("file", blob, `speech.${ext}`);
+      const res = await fetch("/api/stt", { method: "POST", body: fd });
+      if (!res.ok) throw new Error((await res.text().catch(() => "")) || `오류 ${res.status}`);
+      const text = ((await res.json()) as { text?: string }).text?.trim() ?? "";
+      if (text) await sendMessage(text);
+      else setError("말씀을 알아듣지 못했어요. 마이크를 눌러 다시 말씀해 주세요.");
+    } catch (e) {
+      setError(`음성 인식에 실패했습니다: ${(e as Error).message}`);
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  /** STT 마이크 시작: 녹음하면서 소리 크기로 말 시작·끝을 감지해, 말이 끝나면 자동으로 인식·전송 */
+  const startListening = async () => {
+    if (typeof window === "undefined" || recorderRef.current) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setError("이 브라우저는 마이크 녹음을 지원하지 않습니다. Chrome 또는 Edge를 이용해 주세요.");
       return;
     }
-
-    // AI 발화 중지
+    // AI 안내 중이면 멈추고 듣기
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
       currentAudioRef.current = null;
     }
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
     setIsSpeaking(false);
+    setError("");
 
+    let stream: MediaStream;
     try {
-      const recognition = new SpeechRecognition();
-      recognition.lang = "ko-KR";
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-      recognition.continuous = false;
-
-      recognition.onstart = () => {
-        setIsListening(true);
-        setError("");
-      };
-
-      recognition.onresult = (event: any) => {
-        let transcript = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
-        }
-        setInput(transcript);
-
-        // 발화 완료 (isFinal)
-        const isFinal = event.results[event.results.length - 1].isFinal;
-        if (isFinal && transcript.trim()) {
-          recognition.stop();
-          setIsListening(false);
-          setTimeout(() => {
-            sendMessage(transcript);
-          }, 350);
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.warn("STT 인식 이벤트:", event.error);
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (err) {
-      console.error("STT 시작 실패:", err);
-      setIsListening(false);
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch {
+      setError("마이크를 쓸 수 없습니다. 브라우저 주소창 옆에서 마이크 권한을 허용해 주세요.");
+      return;
     }
-  };
+    streamRef.current = stream;
 
-  /** STT 마이크 토글 함수 */
-  const toggleListening = () => {
-    if (isListening) {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch {}
+    const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"].find((t) =>
+      MediaRecorder.isTypeSupported(t),
+    );
+    const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const chunks: Blob[] = [];
+    let heard = false; // 실제로 말소리가 들렸는지
+    rec.ondataavailable = (e) => {
+      if (e.data.size) chunks.push(e.data);
+    };
+    rec.onstop = () => {
+      cleanupRecording();
+      recorderRef.current = null;
+      if (!submitRef.current) return;
+      if (heard && chunks.length) void transcribe(new Blob(chunks, { type: rec.mimeType || "audio/webm" }));
+      else setError("말씀이 들리지 않았어요. 마이크를 눌러 다시 말씀해 주세요.");
+    };
+    recorderRef.current = rec;
+    submitRef.current = true;
+    rec.start(250);
+    setIsListening(true);
+
+    // 말 끝 감지: 처음 0.3초로 주변 소음 크기를 재고, 그보다 큰 소리가 나다가 조용해지면 끝난 것으로 본다
+    const ctx = new AudioContext();
+    audioCtxRef.current = ctx;
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+    const t0 = performance.now();
+    let noiseSum = 0;
+    let noiseN = 0;
+    let lastVoice = t0;
+    vadTimerRef.current = setInterval(() => {
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) sum += v * v;
+      const rms = Math.sqrt(sum / buf.length);
+      const now = performance.now();
+      if (now - t0 < 300) {
+        noiseSum += rms;
+        noiseN += 1;
+        return;
       }
-      setIsListening(false);
-    } else {
-      startListening();
-    }
+      const threshold = Math.max(0.015, (noiseSum / Math.max(noiseN, 1)) * 3);
+      if (rms > threshold) {
+        heard = true;
+        lastVoice = now;
+      }
+      if ((heard && now - lastVoice > SILENCE_MS) || (!heard && now - t0 > NO_SPEECH_MS) || now - t0 > MAX_RECORD_MS) {
+        stopRecording(true);
+      }
+    }, 100);
   };
+
+  /** 마이크 버튼: 듣는 중이면 지금까지 말한 내용으로 바로 인식·전송, 아니면 듣기 시작 */
+  const toggleListening = () => {
+    if (isListening) stopRecording(true);
+    else void startListening();
+  };
+
+  // 화면을 떠날 때 마이크·소리 정리
+  useEffect(
+    () => () => {
+      submitRef.current = false;
+      if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
+      cleanupRecording();
+      currentAudioRef.current?.pause();
+    },
+    [],
+  );
 
   const toggleTts = () => {
     if (ttsEnabled) {
@@ -518,9 +512,10 @@ export default function AgentCall() {
                 ) : (
                   <p className="text-xs text-slate-400 text-center py-4">연결 중...</p>
                 )}
-                {isListening && input && (
-                  <p className="text-xs text-red-300 font-medium italic mt-2">인식 중: &quot;{input}&quot;</p>
+                {isTranscribing && (
+                  <p className="text-xs text-amber-300 font-medium italic mt-2">신경망 음성 인식 중…</p>
                 )}
+                {error && <p className="mt-2 text-[11px] leading-relaxed text-amber-300">{error}</p>}
               </div>
             </div>
 
@@ -531,7 +526,7 @@ export default function AgentCall() {
                 <button
                   type="button"
                   onClick={toggleListening}
-                  disabled={ended || aiTurn}
+                  disabled={ended || aiTurn || isTranscribing}
                   className={cn(
                     "flex flex-col items-center justify-center gap-1 py-3 rounded-2xl transition-all border",
                     isListening
@@ -543,15 +538,11 @@ export default function AgentCall() {
                   <span className="text-[11px]">{isListening ? "음소거" : "내 마이크"}</span>
                 </button>
 
-                {/* 신경망 TTS 음성 */}
-                <button
-                  type="button"
-                  onClick={() => setUseNeuralVoice(!useNeuralVoice)}
-                  className="flex flex-col items-center justify-center gap-1 py-3 rounded-2xl bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10"
-                >
-                  <Sparkles className={cn("size-6", useNeuralVoice ? "text-amber-400" : "text-slate-500")} />
-                  <span className="text-[11px]">{useNeuralVoice ? "신경망 보이스" : "일반 보이스"}</span>
-                </button>
+                {/* 음성 엔진 표시 (신경망 보이스 고정, 일반 보이스 전환 없음) */}
+                <div className="flex flex-col items-center justify-center gap-1 py-3 rounded-2xl bg-white/5 text-slate-300 border border-white/10">
+                  <Sparkles className="size-6 text-amber-400" />
+                  <span className="text-[11px]">신경망 보이스</span>
+                </div>
 
                 {/* 스피커폰 / 소리 켜기 */}
                 <button
@@ -720,8 +711,10 @@ export default function AgentCall() {
                   )}
                 />
                 {isListening
-                  ? "🎙️ 말씀해 주세요, 듣고 있습니다... (말이 끝나면 자동 전송)"
-                  : myTurn
+                  ? "🎙️ 말씀해 주세요, 듣고 있습니다... (말이 끝나면 자동 인식·전송)"
+                  : isTranscribing
+                    ? "신경망 음성 인식으로 말씀을 글로 바꾸는 중…"
+                    : myTurn
                     ? `내 차례 — ${hint?.label || "말씀하시거나 입력하세요"}`
                     : "AI 차례 — 답변을 기다려 주세요"}
               </p>
@@ -730,15 +723,15 @@ export default function AgentCall() {
                 <button
                   type="button"
                   onClick={toggleListening}
-                  disabled={!myTurn}
+                  disabled={!myTurn || isTranscribing}
                   className={cn(
                     "flex size-10 shrink-0 items-center justify-center rounded-xl transition-all border",
                     isListening
                       ? "bg-red-600 text-white border-red-700 shadow-md shadow-red-200 animate-pulse"
                       : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 disabled:opacity-40 disabled:hover:bg-slate-100 disabled:hover:text-slate-700",
                   )}
-                  title={isListening ? "음성 인식 중지" : "마이크로 말하기"}
-                  aria-label={isListening ? "음성 인식 중지" : "마이크로 말하기"}
+                  title={isListening ? "말하기 끝 (바로 인식)" : "마이크로 말하기"}
+                  aria-label={isListening ? "말하기 끝 (바로 인식)" : "마이크로 말하기"}
                 >
                   {isListening ? <MicOff className="size-4 animate-bounce" /> : <Mic className="size-4" />}
                 </button>
@@ -750,7 +743,9 @@ export default function AgentCall() {
                   placeholder={
                     isListening
                       ? "듣고 있습니다... 말씀해 주세요"
-                      : myTurn
+                      : isTranscribing
+                        ? "음성 인식 중…"
+                        : myTurn
                         ? hint?.placeholder || "마이크 버튼을 누르거나 글을 입력하세요"
                         : "AI가 안내하는 중입니다"
                   }

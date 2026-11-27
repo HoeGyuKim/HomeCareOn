@@ -184,7 +184,7 @@ SH 직원 ─ 민원 상세 '방문 일정 조율'에서 배정 업체와 조율
 
 ## 실행 방법
 
-서버 두 개를 띄웁니다. Windows PowerShell 기준이며, 저장소 루트에서 실행합니다.
+대화 엔진(FastAPI, 8100)과 관리자 웹(Next.js, 3000) 두 서버를 씁니다. Windows PowerShell 기준이며, 저장소 루트에서 실행합니다.
 
 **처음 한 번만**
 
@@ -194,13 +194,20 @@ python -m venv .venv
 cd frontend\defect-care; npm install; cd ..\..
 ```
 
-**1. 대화 엔진 서버 (포트 8100)**
+**한 번에 실행 (권장)**
+
+```powershell
+.venv\Scripts\python run.py
+```
+
+두 서버를 함께 켜고 로그를 `[엔진]` / `[웹]`으로 구분해 한 창에 보여 줍니다. `Ctrl+C`를 누르거나 한쪽이 꺼지면 둘 다 끕니다.
+대화 엔진 코드를 고치면서 쓸 때는 `--reload`를 붙이면 자동으로 다시 시작합니다. (Mac은 `.venv/bin/python run.py`)
+
+**따로 실행할 때**
 
 ```powershell
 .venv\Scripts\python -m uvicorn backend.server:app --port 8100
 ```
-
-**2. 관리자 웹 (포트 3000)**
 
 ```powershell
 cd frontend\defect-care; npm run dev
