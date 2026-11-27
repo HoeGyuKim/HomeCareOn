@@ -3,24 +3,41 @@
 import { AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { SEOUL_DISTRICTS } from "@/lib/seoul";
+import { HAN_RIVER_ISLANDS, HAN_RIVER_OUTER, SAETGANG_LINE, SEOUL_DISTRICT_SHAPES, SEOUL_MAP_HEIGHT, SEOUL_MAP_WIDTH } from "@/lib/seoul-geo";
 import type { DistrictStat } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// 처리율 5단계 — 단일 파랑 계열, 밝을수록 낮음 (dataviz 검증 통과: 단조 명도·단일 색상·표면 대비)
-const BINS = [
-  { min: 0, label: "0–20%", fill: "#86b6ef", ink: "#0f172a" },
-  { min: 0.2, label: "20–40%", fill: "#5598e7", ink: "#0f172a" },
-  { min: 0.4, label: "40–60%", fill: "#2a78d6", ink: "#ffffff" },
-  { min: 0.6, label: "60–80%", fill: "#1c5cab", ink: "#ffffff" },
-  { min: 0.8, label: "80–100%", fill: "#0d366b", ink: "#ffffff" },
+// 처리율 연속 색상 — 단일 파랑 계열, 처리율 1% → 100%로 갈수록 점점 짙어짐
+// 중간(50%)에 선명한 파랑을 두어 중간 구간이 회색으로 탁해지지 않게 함
+const STOPS: [number, number[]][] = [
+  [0, [219, 234, 254]], // #dbeafe (낮음)
+  [0.5, [42, 120, 214]], // #2a78d6
+  [1, [11, 46, 92]], // #0b2e5c (높음)
 ];
-const binOf = (rate: number) => [...BINS].reverse().find((b) => rate >= b.min)!;
+const toLin = (c: number) => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const fillOf = (rate: number) => {
+  const t = Math.min(1, Math.max(0, rate));
+  const i = t <= 0.5 ? 0 : 1;
+  const [t0, c0] = STOPS[i];
+  const [t1, c1] = STOPS[i + 1];
+  const u = (t - t0) / (t1 - t0);
+  const [r, g, b] = c0.map((c, k) => Math.round(c + (c1[k] - c) * u));
+  return { fill: `rgb(${r}, ${g}, ${b})`, lum: 0.2126 * toLin(r) + 0.7152 * toLin(g) + 0.0722 * toLin(b) };
+};
+// 배경이 어두우면 흰 글씨, 밝으면 검은 글씨
+const inkOf = (lum: number) => (lum < 0.22 ? "#ffffff" : "#0f172a");
+const GRADIENT = `linear-gradient(to right, ${STOPS.map(([t, c]) => `rgb(${c.join(",")}) ${t * 100}%`).join(", ")})`;
 const pct = (rate: number) => `${Math.round(rate * 100)}%`;
 const short = (name: string) => (name.length > 2 ? name.replace(/구$/, "") : name);
 
-const COLS = 6;
-const ROWS = 6;
+// 지도 가장자리 여백: 테두리·호버 강조선이 잘리지 않게
+const PAD = 12;
+// 한강: 처리율 파랑과 헷갈리지 않도록 채도가 낮은 회청색
+const RIVER_FILL = "#d3dce3";
+const RIVER_EDGE = "#a9b8c4";
+const RIVER_LABEL = { x: 298, y: 339 }; // 도심 구간에서 한강 폭이 가장 넓은 곳(반포 부근)
+const VB_W = SEOUL_MAP_WIDTH + PAD * 2;
+const VB_H = SEOUL_MAP_HEIGHT + PAD * 2;
 
 export default function DistrictRateMap({ data }: { data: DistrictStat[] }) {
   const [hover, setHover] = useState<string | null>(null);
@@ -33,48 +50,114 @@ export default function DistrictRateMap({ data }: { data: DistrictStat[] }) {
     order === "low" ? a.rate! - b.rate! || b.total - a.total : b.rate! - a.rate! || b.total - a.total,
   );
   const hovered = hover ? byName[hover] : null;
-  const hoveredTile = hover ? SEOUL_DISTRICTS.find((d) => d.name === hover) : null;
+  const hoveredShape = hover ? SEOUL_DISTRICT_SHAPES.find((d) => d.name === hover) : null;
+  // 호버한 구를 맨 마지막에 그려 강조 테두리가 이웃 구에 가려지지 않게 함
+  const shapes = hover
+    ? [...SEOUL_DISTRICT_SHAPES.filter((s) => s.name !== hover), ...SEOUL_DISTRICT_SHAPES.filter((s) => s.name === hover)]
+    : SEOUL_DISTRICT_SHAPES;
 
   return (
-    <div className="grid gap-6 p-5 lg:grid-cols-[minmax(0,26rem)_1fr] lg:gap-8">
-      {/* 타일 지도 */}
+    <div className="grid grid-cols-1 gap-6 p-5 lg:grid-cols-[minmax(0,34rem)_1fr] lg:gap-8">
+      {/* 서울 지도 */}
       <div>
-        <div className="relative mx-auto w-full max-w-[26rem]">
-          <div className="grid gap-[3px]" style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${ROWS}, minmax(0, 1fr))` }}>
-            {SEOUL_DISTRICTS.map((t) => {
-              const d = byName[t.name];
+        <div className="relative mx-auto w-full max-w-[34rem]">
+          <svg viewBox={`${-PAD} ${-PAD} ${VB_W} ${VB_H}`} className="block h-auto w-full" role="img" aria-label="서울 자치구별 민원 처리율 지도">
+            <defs>
+              {/* 서울 경계: 한강을 서울 안쪽만 그리도록 자름 */}
+              <clipPath id="seoul-clip">
+                {SEOUL_DISTRICT_SHAPES.map((s) => (
+                  <path key={s.name} d={s.d} />
+                ))}
+              </clipPath>
+              {/* 한강 수면 = 바깥 경계(흰색) − 섬(검은색) */}
+              <mask id="han-river-mask" maskUnits="userSpaceOnUse" x={-PAD} y={-PAD} width={VB_W} height={VB_H}>
+                <path d={HAN_RIVER_OUTER} fill="#fff" />
+                <path d={HAN_RIVER_ISLANDS} fill="#000" />
+              </mask>
+            </defs>
+            {shapes.map((s) => {
+              const d = byName[s.name];
               const has = d && d.total > 0;
-              const bin = has ? binOf(d.rate!) : null;
+              const c = has ? fillOf(d.rate!) : null;
+              const active = hover === s.name;
               return (
                 <Link
-                  key={t.name}
-                  href={`/complaints?district=${encodeURIComponent(t.name)}`}
-                  onMouseEnter={() => setHover(t.name)}
+                  key={s.name}
+                  href={`/complaints?district=${encodeURIComponent(s.name)}`}
+                  onMouseEnter={() => setHover(s.name)}
                   onMouseLeave={() => setHover(null)}
-                  onFocus={() => setHover(t.name)}
+                  onFocus={() => setHover(s.name)}
                   onBlur={() => setHover(null)}
-                  aria-label={has ? `${t.name} 처리율 ${pct(d.rate!)}, 완료 ${d.completed}건 / 전체 ${d.total}건` : `${t.name} 접수 없음`}
-                  className={cn(
-                    "flex aspect-square flex-col items-center justify-center rounded-[4px] text-center leading-tight outline-offset-2 transition-[filter] hover:brightness-110 focus-visible:outline-2 focus-visible:outline-slate-900",
-                    !has && "border border-dashed border-slate-300 bg-slate-50",
-                    hover === t.name && "ring-2 ring-slate-900 ring-offset-1",
-                  )}
-                  style={{ gridColumn: t.col + 1, gridRow: t.row + 1, ...(bin ? { background: bin.fill, color: bin.ink } : {}) }}
+                  aria-label={has ? `${s.name} 처리율 ${pct(d.rate!)}, 완료 ${d.completed}건 / 전체 ${d.total}건` : `${s.name} 접수 없음`}
+                  className="outline-none"
                 >
-                  <span className={cn("text-[10px] sm:text-xs", has ? "font-medium" : "text-slate-500")}>{short(t.name)}</span>
-                  <span className={cn("text-xs font-bold tabular-nums sm:text-sm", !has && "font-normal text-slate-400")}>
-                    {has ? pct(d.rate!) : "–"}
-                  </span>
+                  <path
+                    d={s.d}
+                    fill={c ? c.fill : "#f8fafc"}
+                    stroke={active ? "#0f172a" : c ? "#ffffff" : "#cbd5e1"}
+                    strokeWidth={active ? 2.5 : 1.5}
+                    strokeDasharray={!c && !active ? "4 3" : undefined}
+                    strokeLinejoin="round"
+                    className="cursor-pointer transition-[filter] hover:brightness-110"
+                  />
                 </Link>
               );
             })}
-          </div>
+
+            {/* 구 이름·처리율 라벨 (클릭을 막지 않도록 포인터 무시) */}
+            {/* 한강 (마우스 이벤트는 아래 구로 통과) */}
+            <g pointerEvents="none" clipPath="url(#seoul-clip)">
+              {/* 수면 조각이 겹치는 이음매가 보이지 않도록 외곽선 없이 마스크로만 채움 */}
+              <rect x={-PAD} y={-PAD} width={VB_W} height={VB_H} fill={RIVER_FILL} mask="url(#han-river-mask)" />
+              {/* 샛강: 여의도와 영등포 본토 사이 물길 — 실제 폭은 너무 좁아 보이도록 굵게 그림 */}
+              <path d={SAETGANG_LINE} fill="none" stroke={RIVER_FILL} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />
+            </g>
+            <text
+              x={RIVER_LABEL.x}
+              y={RIVER_LABEL.y}
+              pointerEvents="none"
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={9}
+              fontStyle="italic"
+              fontWeight={600}
+              fill="#5b6b78"
+              letterSpacing={1}
+            >
+              한강
+            </text>
+
+            {/* 위치: 구 안에서 경계와 가장 먼 점 — 모양이 길쭉해도 글자가 이웃 구로 넘어가지 않음 */}
+            <g pointerEvents="none" textAnchor="middle" dominantBaseline="central">
+              {SEOUL_DISTRICT_SHAPES.map((s) => {
+                const d = byName[s.name];
+                const has = d && d.total > 0;
+                const c = has ? fillOf(d.rate!) : null;
+                const ink = c ? inkOf(c.lum) : "#64748b";
+                const size = s.r < 20 ? 11 : 13; // 작은 구(중구·금천·구로·양천)는 글자를 줄임
+                const halo = { stroke: c ? c.fill : "#f8fafc", strokeWidth: 3, paintOrder: "stroke" as const, strokeLinejoin: "round" as const };
+                return (
+                  <text key={s.name} fill={ink} fontSize={size} style={halo}>
+                    <tspan x={s.cx} y={s.cy - size * 0.6} fontWeight={600}>
+                      {short(s.name)}
+                    </tspan>
+                    <tspan x={s.cx} y={s.cy + size * 0.6} fontWeight={700} style={{ fontVariantNumeric: "tabular-nums" }}>
+                      {has ? pct(d.rate!) : "–"}
+                    </tspan>
+                  </text>
+                );
+              })}
+            </g>
+          </svg>
 
           {/* 호버 툴팁 */}
-          {hovered && hoveredTile && (
+          {hovered && hoveredShape && (
             <div
               className="pointer-events-none absolute z-10 w-max -translate-x-1/2 -translate-y-full rounded-lg bg-slate-900 px-3 py-2 text-xs text-white shadow-lg"
-              style={{ left: `${((hoveredTile.col + 0.5) / COLS) * 100}%`, top: `calc(${(hoveredTile.row / ROWS) * 100}% - 6px)` }}
+              style={{
+                left: `${((hoveredShape.cx + PAD) / VB_W) * 100}%`,
+                top: `calc(${((hoveredShape.cy - hoveredShape.r * 0.6 + PAD) / VB_H) * 100}% - 6px)`,
+              }}
             >
               <p className="font-semibold">{hovered.district}</p>
               {hovered.total ? (
@@ -89,21 +172,30 @@ export default function DistrictRateMap({ data }: { data: DistrictStat[] }) {
           )}
         </div>
 
-        {/* 범례 */}
-        <div className="mx-auto mt-4 max-w-[26rem]">
+        {/* 범례: 연속 색상 막대 */}
+        <div className="mx-auto mt-4 max-w-[34rem]">
           <p className="mb-1.5 text-[11px] text-slate-500">처리 완료율</p>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-600">
-            {BINS.map((b) => (
-              <span key={b.label} className="inline-flex items-center gap-1">
-                <i className="size-3 rounded-[3px]" style={{ background: b.fill }} />
-                {b.label}
-              </span>
-            ))}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] text-slate-600">
+            <div className="min-w-48 flex-1">
+              <div className="h-2.5 rounded-full" style={{ background: GRADIENT }} />
+              <div className="mt-1 flex justify-between tabular-nums text-slate-500">
+                <span>1%</span>
+                <span>25%</span>
+                <span>50%</span>
+                <span>75%</span>
+                <span>100%</span>
+              </div>
+            </div>
             <span className="inline-flex items-center gap-1">
               <i className="size-3 rounded-[3px] border border-dashed border-slate-300 bg-slate-50" />
               접수 없음
             </span>
+            <span className="inline-flex items-center gap-1">
+              <i className="h-1.5 w-4 rounded-full" style={{ background: RIVER_FILL, boxShadow: `inset 0 0 0 0.5px ${RIVER_EDGE}` }} />
+              한강
+            </span>
           </div>
+          <p className="mt-2 text-[10px] text-slate-400">지도 출처: 통계청 행정구역 경계(2013) · 한강 © OpenStreetMap contributors</p>
         </div>
       </div>
 
@@ -126,7 +218,7 @@ export default function DistrictRateMap({ data }: { data: DistrictStat[] }) {
             ))}
           </div>
         </div>
-        <ul className="max-h-[26rem] space-y-0.5 overflow-y-auto pr-1">
+        <ul className="max-h-[30rem] space-y-0.5 overflow-y-auto pr-1">
           {sorted.map((d) => (
             <li key={d.district}>
               <Link
